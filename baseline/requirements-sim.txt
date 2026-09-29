@@ -1,0 +1,33 @@
+# RoboTwin simulation/data-processing environment (Python 3.11).
+# torch 2.4.1 + CUDA 12.4 and cuRobo are installed separately by bootstrap.sh.
+numpy==1.26.4
+scipy==1.13.1
+pybind11==3.1.0
+networkx==3.6.1
+numpy-quaternion==2024.0.13
+yourdfpy==0.0.60
+scikit-image==0.26.0
+setuptools-scm==10.3.4
+importlib-resources==7.1.0
+tqdm==4.70.1
+pydantic==2.13.5
+einops==0.8.2
+sapien==3.0.0b1
+mplib==0.2.1
+gymnasium==0.29.1
+trimesh==4.4.3
+open3d==0.18.0
+transforms3d==0.4.2
+toppra==0.6.10
+warp-lang==1.12.0
+h5py==3.14.0
+opencv-python-headless==4.11.0.86
+imageio==2.34.2
+imageio-ffmpeg==0.6.0
+av==15.0.0
+pillow==11.3.0
+pyyaml==6.0.2
+zarr==2.18.7
+huggingface-hub==0.34.3
+msgpack==1.1.1
+websockets==15.0.1

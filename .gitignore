@@ -1,0 +1,16 @@
+# Downloaded third-party source, virtual environments and dependencies
+/.venvs/
+/.deps/
+/lingbot-vla-v2/
+/RoboTwin/
+
+# Large models, datasets, derived data and run outputs
+/lingbot-vla-v2-6b/
+/灵波2026/robotwin_official/
+/baseline/models/
+/baseline/work/
+
+# Local Python and log files
+**/__pycache__/
+*.pyc
+*.log

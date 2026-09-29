@@ -1,0 +1,7 @@
+# LingBot training/inference environment (Python 3.12, torch 2.8.0 + CUDA 12.8).
+# PyTorch CUDA wheels, flash-attn, LeRobot, utils3d and editable local packages
+# are installed in bootstrap.sh because they need separate indexes/build flags.
+# The official requirements-depth.txt is installed separately, then these core
+# pins are restored: mlflow 2.22.5 declares pyarrow<20 while training pins 21.
+-r ../lingbot-vla-v2/requirements.txt
+tyro==1.0.16

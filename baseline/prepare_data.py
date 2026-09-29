@@ -2,6 +2,7 @@
 """Prepare only the competition's 50 clean RoboTwin demonstrations."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,17 @@ def convert(task, python=None):
     print(f"converted {task}", flush=True)
 
 
+def prepare_task(index, total, task, stage, process_python, convert_python):
+    inspect_archive(task)
+    print(f"[{index}/{total}] {task}: clean archive OK", flush=True)
+    if stage in ("unpack", "hdf5", "all"):
+        unpack(task)
+    if stage in ("process", "hdf5", "all"):
+        process(task, process_python)
+    if stage in ("convert", "all"):
+        convert(task, convert_python)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=["verify", "unpack", "process", "hdf5", "convert", "all"],
@@ -127,7 +139,11 @@ def main():
                         help="Python in the RoboTwin simulation environment (needs h5py and cv2)")
     parser.add_argument("--convert-python", default=None,
                         help="Python with LeRobot and tyro installed; default is uv run in RoboTwin/policy/pi0")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Number of tasks to prepare concurrently (default: 1)")
     args = parser.parse_args()
+    if args.workers < 1:
+        parser.error("--workers must be at least 1")
     process_python = (os.path.abspath(args.process_python)
                       if os.path.sep in args.process_python else args.process_python)
     convert_python = (os.path.abspath(args.convert_python)
@@ -137,15 +153,16 @@ def main():
     unknown = sorted(set(tasks) - set(expected))
     if unknown or len(tasks) != len(set(tasks)):
         parser.error(f"unknown or duplicate task names: {unknown or tasks}")
-    for index, task in enumerate(tasks, 1):
-        inspect_archive(task)
-        print(f"[{index}/{len(tasks)}] {task}: clean archive OK", flush=True)
-        if args.stage in ("unpack", "hdf5", "all"):
-            unpack(task)
-        if args.stage in ("process", "hdf5", "all"):
-            process(task, process_python)
-        if args.stage in ("convert", "all"):
-            convert(task, convert_python)
+    if args.workers == 1:
+        for index, task in enumerate(tasks, 1):
+            prepare_task(index, len(tasks), task, args.stage, process_python, convert_python)
+    else:
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = [executor.submit(prepare_task, index, len(tasks), task, args.stage,
+                                       process_python, convert_python)
+                       for index, task in enumerate(tasks, 1)]
+            for future in futures:
+                future.result()
     if args.stage in ("convert", "all"):
         if all(is_converted(task) for task in expected):
             WORK.mkdir(parents=True, exist_ok=True)

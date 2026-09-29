@@ -54,6 +54,8 @@ python baseline/prepare_data.py all --process-python /path/to/RoboTwin-env/bin/p
 
 `all` 会逐任务读取当前 `灵波2026/robotwin_official/dataset/<task>/aloha-agilex_clean_50.zip`，只解压 `data/` 与 `instructions/`；调用 RoboTwin 自带 `process_data.py` 和 LeRobot 转换器，最终生成 `baseline/work/clean_datasets.txt`。重复运行会跳过已完成任务。也可先运行 `hdf5` 阶段完成解压与官方 HDF5 处理，再运行 `convert` 阶段。调试可用 `--tasks lift_pot` 只处理一个任务，但不会生成完整训练清单。`verify` 只检查 50 个压缩包是否有每任务 50 条数据与指令，不展开大型数据。
 
+数据准备默认一次只处理一个任务。可在启动前设置 `PREPARE_WORKERS=4`，让 `run_all.sh` 同时准备四个不同任务；独立运行时可给 `prepare_data.py` 加 `--workers 4`。正在运行的进程不会读取新参数，需重启才生效；已完整完成的任务会跳过。原始解压数据位于 `RoboTwin/data/<task>/aloha-agilex_clean_50/`，中间 HDF5 位于 `RoboTwin/policy/pi0/processed_data/<task>-aloha-agilex_clean_50-50/`，最终 LeRobot 训练数据位于 `baseline/work/cache/huggingface/lerobot/robotwin_clean/<task>/`。
+
 训练前，确保已下载额外权重并激活 LingBot 环境。官方 RoboTwin 示例清单包含 randomized 数据，**不要使用**。本脚本始终使用自己生成的 clean 清单与 clean 归一化统计。
 
 ```bash

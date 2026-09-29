@@ -12,7 +12,7 @@ if [[ -n "${TRAIN_ACTIVATE:-}" ]]; then
 elif [[ -f "$ROOT/.venvs/lingbot/bin/activate" ]]; then
   source "$ROOT/.venvs/lingbot/bin/activate"
 fi
-if [[ -z "${TEAM_ID:-}" ]]; then
+if [[ -z "${TEAM_ID:-1382990}" ]]; then
   echo "Set TEAM_ID to the actual competition team ID before starting." >&2
   exit 2
 fi
@@ -36,7 +36,7 @@ if [[ "${PREPARE_DATA:-1}" == 1 ]]; then
   fi
   echo "Preparing 50 clean datasets with $PROCESS_PYTHON"
   python "$BASELINE_DIR/prepare_data.py" all --process-python "$PROCESS_PYTHON" \
-    --convert-python "$(command -v python)"
+    --convert-python "$(command -v python)" --workers "${PREPARE_WORKERS:-1}"
 fi
 
 echo "Training clean data to step ${MAX_STEPS:-2000}"

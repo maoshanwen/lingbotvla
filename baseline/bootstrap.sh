@@ -137,6 +137,8 @@ PY
 
   "$TRAIN_ENV/bin/python" - <<'PY'
 import torch, flash_attn, lerobot, moge, utils3d
+from lerobot.common.datasets.lerobot_dataset import LeRobotDataset, LeRobotDatasetMetadata
+from lingbotvla.data import build_vla_dataset
 assert torch.__version__.split('+')[0] == '2.8.0'
 assert torch.version.cuda == '12.8', torch.version.cuda
 print('training environment:', torch.__version__, 'CUDA:', torch.version.cuda,

@@ -5,3 +5,4 @@
 # pins are restored: mlflow 2.22.5 declares pyarrow<20 while training pins 21.
 -r ../lingbot-vla-v2/requirements.txt
 tyro==1.0.16
+draccus==0.10.0

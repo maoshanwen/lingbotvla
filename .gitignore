@@ -1,5 +1,6 @@
 # Downloaded third-party source, virtual environments and dependencies
-/.venvs/
+/.venvs
+/.venvs-incomplete*/
 /.deps/
 /lingbot-vla-v2/
 /RoboTwin/

@@ -16,6 +16,8 @@ bash baseline/bootstrap.sh
 
 [`bootstrap.sh`](bootstrap.sh) 会拉取固定提交的 LingBot/RoboTwin 源码，创建 `.venvs/lingbot`（Python 3.12、PyTorch 2.8/cu128）和 `.venvs/robotwin`（Python 3.11、PyTorch 2.4/cu124），按 [`requirements.txt`](requirements.txt) 与 [`requirements-sim.txt`](requirements-sim.txt) 安装依赖，并编译 cuRobo。随后 [`download_artifacts.py`](download_artifacts.py) 从官方 Hugging Face 仓库下载 LingBot 6B 基模、Qwen3-VL、MoGe、50 个 clean ZIP 和 RoboTwin 三个仿真资产包；下载使用当前机器已验证的 revision，可通过 `LINGBOT_MODEL_REV`、`ROBOTWIN_DATA_REV`、`QWEN_REV`、`MOGE_REV` 覆盖。最后解压 assets、更新机器人配置中的绝对路径、验证 50 个 ZIP。重复运行会利用已有环境和下载缓存；`--only-deps` 或 `--only-download` 可单独重试一个阶段。
 
+当前机器的两个虚拟环境已重建；项目中的 `.venvs` 是指向 `/home/tiger/.local/share/lingbot-race/venvs` 的链接，避免依赖会被清理的 `/tmp`。可用 `source .venvs/lingbot/bin/activate` 进入训练环境；端到端脚本会自动激活它。切换到其他机器时，初始化脚本仍会在项目的 `.venvs` 位置创建环境。
+
 初始化完成后运行：
 
 ```bash

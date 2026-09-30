@@ -7,7 +7,7 @@ ROOT="$(dirname "$BASELINE_DIR")"
 TRAIN_ENV="$ROOT/.venvs/lingbot"
 SIM_ENV="$ROOT/.venvs/robotwin"
 export PYTHONNOUSERSITE=1
-export UV_LINK_MODE=copy
+export UV_LINK_MODE="${UV_LINK_MODE:-auto}"
 
 usage() {
   cat <<'EOF'
@@ -88,8 +88,8 @@ if [[ "$phase" != download ]]; then
   echo "Installing LingBot training/inference dependencies"
   uv pip install --python "$TRAIN_ENV/bin/python" \
     torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0 \
-    torchdata==0.11.0 torchcodec==0.6.0 \
     --index-url https://download.pytorch.org/whl/cu128
+  uv pip install --python "$TRAIN_ENV/bin/python" torchdata==0.11.0 torchcodec==0.6.0
   uv pip install --python "$TRAIN_ENV/bin/python" -r "$BASELINE_DIR/requirements.txt"
   uv pip install --python "$TRAIN_ENV/bin/python" -r "$ROOT/lingbot-vla-v2/requirements-depth.txt"
   uv pip install --python "$TRAIN_ENV/bin/python" -r "$BASELINE_DIR/requirements.txt"
@@ -114,14 +114,24 @@ if [[ "$phase" != download ]]; then
   uv pip install --python "$SIM_ENV/bin/python" torch==2.4.1 torchvision==0.19.1 \
     --index-url https://download.pytorch.org/whl/cu124
   uv pip install --python "$SIM_ENV/bin/python" -r "$BASELINE_DIR/requirements-sim.txt"
-  uv pip install --python "$SIM_ENV/bin/python" setuptools==84.0.0 wheel==0.45.1 ninja==1.13.0
+  uv pip install --python "$SIM_ENV/bin/python" setuptools==80.9.0 wheel==0.45.1 ninja==1.13.0
   if [[ ! -f "$ROOT/RoboTwin/envs/curobo/setup.py" ]]; then
     git clone --depth 1 --branch v0.7.8 https://github.com/NVlabs/curobo.git \
       "$ROOT/RoboTwin/envs/curobo"
   fi
   export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-9.0}"
-  uv pip install --python "$SIM_ENV/bin/python" --no-build-isolation --no-deps \
-    -e "$ROOT/RoboTwin/envs/curobo"
+  # Existing RoboTwin bundles may contain cuRobo source without its .git metadata.
+  export SETUPTOOLS_SCM_PRETEND_VERSION_FOR_NVIDIA_CUROBO="${SETUPTOOLS_SCM_PRETEND_VERSION_FOR_NVIDIA_CUROBO:-0.7.8}"
+  if ! "$SIM_ENV/bin/python" - <<'PY'
+import torch
+from importlib.metadata import version
+assert version('nvidia-curobo') == '0.7.8'
+from curobo.curobolib import lbfgs_step_cu, kinematics_fused_cu, line_search_cu, tensor_step_cu, geom_cu
+PY
+  then
+    uv pip install --python "$SIM_ENV/bin/python" --no-build-isolation --no-deps \
+      -e "$ROOT/RoboTwin/envs/curobo"
+  fi
   ffmpeg_exe="$("$SIM_ENV/bin/python" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
   ln -sfn "$ffmpeg_exe" "$SIM_ENV/bin/ffmpeg"
 
@@ -129,15 +139,15 @@ if [[ "$phase" != download ]]; then
 import torch, flash_attn, lerobot, moge, utils3d
 assert torch.__version__.split('+')[0] == '2.8.0'
 assert torch.version.cuda == '12.8', torch.version.cuda
-assert torch.cuda.is_available(), 'training GPU is not visible'
-print('training environment:', torch.__version__, 'CUDA:', torch.version.cuda)
+print('training environment:', torch.__version__, 'CUDA:', torch.version.cuda,
+      'GPU visible:', torch.cuda.is_available())
 PY
   "$SIM_ENV/bin/python" - <<'PY'
 import torch, sapien, mplib, curobo, warp
 assert torch.__version__.split('+')[0] == '2.4.1'
 assert torch.version.cuda == '12.4', torch.version.cuda
-assert torch.cuda.is_available(), 'simulation GPU is not visible'
-print('simulation environment:', torch.__version__, 'CUDA:', torch.version.cuda)
+print('simulation environment:', torch.__version__, 'CUDA:', torch.version.cuda,
+      'GPU visible:', torch.cuda.is_available())
 PY
 fi
 

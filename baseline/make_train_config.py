@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import yaml
@@ -11,7 +12,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = Path(__file__).resolve().parent
 MODEL_CODE = ROOT / "lingbot-vla-v2"
-BASE_WEIGHTS = ROOT / "lingbot-vla-v2-6b"
+BASE_WEIGHTS = Path(os.environ.get("LINGBOT_BASE_WEIGHTS", ROOT / "lingbot-vla-v2-6b"))
 TEMPLATE = ROOT / "灵波2026/初赛评测结果模板_JSON版.json"
 
 

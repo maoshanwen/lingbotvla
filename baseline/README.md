@@ -69,6 +69,11 @@ MAX_STEPS=2000 SAVE_STEPS=500 MICRO_BATCH_SIZE=1 GLOBAL_BATCH_SIZE=4 \
 
 `train.sh` 先生成独立的 clean robot config，再调用 LingBot 官方 `scripts/compute_norm_stats.py` 生成 `baseline/work/clean_norm_stats.json`，最后基于官方 RoboTwin 训练配置生成 `baseline/work/train_config.yaml` 并训练。这样训练数据加载器不会读取官方示例中混合数据的统计量。`GLOBAL_BATCH_SIZE` 应按 GPU 数和显存调整；6B 模型及深度/视频 teacher 需要多卡或大显存。训练 checkpoint 在 `baseline/work/train_output/checkpoints/global_step_*/hf_ckpt`。训练中的 `lingbotvla_cli.yaml` 和 clean norm 文件必须随 checkpoint 保留供推理读取。
 
+续训时，学习率调度器使用本次生成的配置（包括 `MAX_STEPS`、学习率和 warmup 比例），在恢复模型与优化器后，立即按 checkpoint 的 `global_step` 重算各参数组学习率。`MAX_STEPS` 表示训练总目标步数，不是追加步数。例如已有第 2000 步 checkpoint，执行 `MAX_STEPS=50000 SAVE_STEPS=5000 bash baseline/train.sh` 会尝试恢复最新可用 checkpoint 并训练至总第 50000 步。当前默认余弦调度、基础 LR `1e-4`、最低 LR `5e-5`、warmup 比例 0 时，恢复至第 2000 步的基础参数组 LR 约为 `9.98e-5`，第 50000 步降至 `5e-5`；各组原有 LR 比例保留。延长训练预算后 LR 可能回升，已完成的前 2000 步不会被重新执行，因此它不等同于从头按 50000 步曲线训练。
+
+恢复日志中的 `Resumed LR schedule from current config` 会打印恢复步数、总步数和各参数组 LR。调度恢复的 CPU 测试可运行 `.venvs/lingbot/bin/python -m unittest discover -s baseline/tests -p 'test_resume_lr.py' -v`。
+
+
 仿真时激活 LingBot 环境，并确保 RoboTwin 环境和 assets 已准备好：
 
 ```bash
@@ -80,5 +85,31 @@ EVAL_NUM_GPUS=1 bash baseline/eval.sh \
 ```
 
 `eval.sh` 调用 LingBot 官方 `start_robotwin_infer_and_eval.sh` 两次，分别评测 `demo_clean` 和 `demo_randomized`；原始日志与 `stats.txt` 写到 `baseline/work/eval/`。成功完成全部 50×100×2 回合后，`make_results.py` 从每个任务最后的 `Success rate: 成功数/测试数` 日志生成 `baseline/work/submission/01_评测结果/results.json`，包含官方模板的 `schema_version`、`team_id`、`clean` 和 `randomized` 的各任务 `attempts/successes`。有缺失任务、少于 100 回合或官方统计标记未完成时，脚本会报错，不填虚假的零。
+
+### 子集评测与前 K 回合
+
+`eval.sh` 支持两个可选环境变量：
+
+- `EVAL_TASKS=all`：默认全部 50 个任务。`recommended8` 选择 `click_bell,press_stapler,turn_switch,shake_bottle,open_microwave,place_a2b_left,pick_dual_bottles,stack_blocks_two`；也可传逗号分隔的官方任务名，例如 `EVAL_TASKS=press_stapler,turn_switch,shake_bottle`。
+- `EVAL_EPISODES=100`：默认每任务、每 setting 100 回合，可设 1–100。`30` 表示原评测序列的前 30 个有效回合，不随机抽取回合。clean / randomized 都执行。
+
+推荐 8 项 × 两组 × 前 30 回合，共 480 回合：
+
+```bash
+TEAM_ID=1382900 \
+QWEN3VL_PATH=/tmp/lingbot-models/Qwen3-VL-4B-Instruct \
+CONDA_SH=/mnt/bn/search-nlp-vagcp/qiaohaoyu/lingbot/baseline/venv_conda_adapter.sh \
+EVAL_COMPAT=1 EVAL_NUM_GPUS=4 EVAL_NUM_PER_GPU=2 \
+EVAL_USE_BF16=True EVAL_USE_FP32=False \
+EVAL_TASKS=recommended8 EVAL_EPISODES=30 \
+bash baseline/eval.sh \
+  /mnt/bn/search-nlp-vagcp/qiaohaoyu/lingbot/baseline/work/train_output/checkpoints/global_step_2000/hf_ckpt
+```
+
+评测仍从 `seed=0` 对应的环境 seed `100000` 开始，按原顺序递增，并沿用专家规划失败时跳过该环境的逻辑。因此“前 K 个”指原 100 回合评测中的前 K 个有效回合，未必是连续 K 个环境 seed。候选语言指令的生成数量固定为原来的 100，以避免减小 K 后同一 seed 的指令变化；场景和指令内部的随机化仍由原 seed 控制。
+
+每次结果写入 `baseline/work/eval/<本次目录>/results.json`。子集结果额外记录任务、回合数及选择方式，不覆盖 `work/submission/01_评测结果/results.json`。仅全部 50 任务且每组每任务 100 回合完整结束后，才更新全量提交 JSON。
+
+底层启动脚本也支持 `--tasks <逗号分隔任务名>` 和 `--test_num K`；显式 `--tasks` 优先于原 `--num_tasks`。CPU 验证可运行 `python -m unittest discover -s baseline/tests -v`，这些测试不启动真实模型和仿真。
 
 比赛提交包还需要 `02_代码材料/` 中的训练和评测代码及配置、`03_模型权重/` checkpoint、`04_复现与调优说明/`。参见 [`灵波2026/代码材料目录要求.md`](../灵波2026/代码材料目录要求.md)。若修改 RoboTwin 官方评测逻辑，必须在提交说明中披露；本 baseline 直接使用其任务与成功判定，并使用 LingBot 官方评测客户端。

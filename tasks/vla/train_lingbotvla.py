@@ -36,6 +36,7 @@ from lingbotvla.utils import helper
 from lingbotvla.utils.async_hf_checkpoint import AsyncHFCheckpointSaver
 from lingbotvla.utils.arguments import EvalArguments, DataArguments, ModelArguments, TrainingArguments, parse_args, save_args
 from lingbotvla.utils.dist_utils import all_reduce
+from lingbotvla.utils.lora_utils import add_lora_to_model
 from lingbotvla.models.config_registry import get_config_registry
 
 from lingbotvla.models.vla.vision_models.module_utils import (
@@ -118,6 +119,25 @@ def get_moe_param_groups(model: "torch.nn.Module", args_train) -> Optional[List[
 
 @dataclass
 class MyTrainingArguments(TrainingArguments):
+    use_lora: bool = field(
+        default=False,
+        metadata={"help": "Enable parameter-efficient LoRA fine-tuning."},
+    )
+    lora_rank: int = field(default=16)
+    lora_alpha: int = field(default=32)
+    lora_dropout: float = field(default=0.05)
+    lora_use_rslora: bool = field(default=True)
+    lora_target_scope: str = field(
+        default="action_expert",
+        metadata={"help": "One of: action_expert, vlm, vision, action_expert+vlm."},
+    )
+    lora_target_modules: str = field(
+        default="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
+    )
+    lora_modules_to_save: str = field(
+        default="state_proj,action_in_proj,action_out_proj",
+        metadata={"help": "Regex fragments for small task heads trained in full precision."},
+    )
     freeze_vit: bool = field(
         default=False,
         metadata={"help": "Whether or not to freeze the vit parameters."},
@@ -379,6 +399,17 @@ def main():
         config_kwargs=config_kwargs,
         moe_implementation=getattr(args.model, 'moe_implementation', None),
     )
+    if args.train.use_lora:
+        model = add_lora_to_model(
+            model,
+            lora_rank=args.train.lora_rank,
+            lora_alpha=args.train.lora_alpha,
+            lora_dropout=args.train.lora_dropout,
+            lora_target_scope=args.train.lora_target_scope,
+            lora_target_modules=args.train.lora_target_modules,
+            lora_modules_to_save=args.train.lora_modules_to_save,
+            use_rslora=args.train.lora_use_rslora,
+        )
     use_depth_align = True if args.train.align_params != {} else False
     use_future_depth = args.train.align_params.get('depth', {}).get('use_future_depth', False)
     use_future_video = use_depth_align and args.train.align_params.get('use_future_video', False)

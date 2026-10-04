@@ -31,6 +31,7 @@ from lingbotvla.models.vla.lingbot_vla.qwen3vl_in_vla import apply_lingbot_qwen3
 
 from lingbotvla.data.vla_data.utils import FeatureTransform
 from lingbotvla.models import build_processor
+from lingbotvla.utils.lora_utils import add_lora_to_model
 import time
 import random
 
@@ -316,6 +317,25 @@ class LingbotVLAv2Server:
         print('Initializing model ... ')
 
         self.vla = LingBotVlaV2InferencePolicy(config, eval=True)
+
+        if training_config['train'].get('use_lora', False):
+            lora_args = training_config['train']
+            self.vla = add_lora_to_model(
+                self.vla,
+                lora_rank=lora_args.get('lora_rank', 16),
+                lora_alpha=lora_args.get('lora_alpha', 32),
+                lora_dropout=lora_args.get('lora_dropout', 0.05),
+                lora_target_scope=lora_args.get('lora_target_scope', 'action_expert'),
+                lora_target_modules=lora_args.get(
+                    'lora_target_modules',
+                    'q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj',
+                ),
+                lora_modules_to_save=lora_args.get(
+                    'lora_modules_to_save',
+                    'state_proj,action_in_proj,action_out_proj',
+                ),
+                use_rslora=lora_args.get('lora_use_rslora', True),
+            )
 
         self.load_model_weights(path_to_pi_model, strict=True)
         

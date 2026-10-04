@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
+
 import torch
 import torch.nn as nn
 from peft import LoraConfig, inject_adapter_in_model
@@ -25,32 +27,83 @@ def freeze_parameters(model: nn.Module):
     model.train()
 
 
+def _matches_scope(name: str, scope: str) -> bool:
+    if scope == "action_expert":
+        return ".qwen_expert." in f".{name}."
+    if scope == "vlm":
+        return ".qwenvl." in f".{name}." and ".visual." not in f".{name}."
+    if scope == "vision":
+        return ".qwenvl.visual." in f".{name}."
+    if scope == "action_expert+vlm":
+        return _matches_scope(name, "action_expert") or _matches_scope(name, "vlm")
+    raise ValueError(f"Unsupported LoRA scope: {scope}")
+
+
+def resolve_lora_targets(
+    model: nn.Module,
+    scope: str,
+    module_names: str,
+) -> list[str]:
+    """Return exact Linear module paths selected for LoRA injection."""
+    suffixes = {item.strip() for item in module_names.split(",") if item.strip()}
+    targets = [
+        name
+        for name, module in model.named_modules()
+        if isinstance(module, nn.Linear)
+        and name.rsplit(".", 1)[-1] in suffixes
+        and _matches_scope(name, scope)
+    ]
+    if not targets:
+        raise ValueError(
+            f"No Linear modules matched scope={scope!r}, module_names={sorted(suffixes)!r}"
+        )
+    return targets
+
+
 def add_lora_to_model(
     model: nn.Module,
-    lora_rank=4,
-    lora_alpha=4,
-    lora_target_modules="q,k,v,o,ffn.0,ffn.2",
+    lora_rank=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    lora_target_scope="action_expert",
+    lora_target_modules="q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj",
+    lora_modules_to_save="state_proj,action_in_proj,action_out_proj",
+    use_rslora=True,
     init_lora_weights="kaiming",
     pretrained_lora_path=None,
     state_dict_converter=None,
-    lora_target_modules_support=None,
 ):
+    freeze_parameters(model)
     model.lora_alpha = lora_alpha
     if init_lora_weights == "kaiming":
         init_lora_weights = True
 
+    target_modules = resolve_lora_targets(
+        model,
+        scope=lora_target_scope,
+        module_names=lora_target_modules,
+    )
+
     lora_config = LoraConfig(
         r=lora_rank,
         lora_alpha=lora_alpha,
+        lora_dropout=lora_dropout,
+        use_rslora=use_rslora,
+        bias="none",
         init_lora_weights=init_lora_weights,
-        target_modules=lora_target_modules.split(","),
+        target_modules=target_modules,
     )
-
-    for lora_target_module in lora_config.target_modules:
-        if lora_target_module not in lora_target_modules_support:
-            raise ValueError(f"lora_target_module {lora_target_module} not in lora_target_modules_support")
-
     model = inject_adapter_in_model(lora_config, model)
+
+    save_patterns = [
+        re.compile(pattern.strip())
+        for pattern in lora_modules_to_save.split(",")
+        if pattern.strip()
+    ]
+    for name, param in model.named_parameters():
+        if any(pattern.search(name) for pattern in save_patterns):
+            param.requires_grad_(True)
+
     for param in model.parameters():
         if param.requires_grad:
             param.data = param.to(torch.float32)
@@ -71,6 +124,14 @@ def add_lora_to_model(
         print(
             f"{num_updated_keys} parameters are loaded from {pretrained_lora_path}. {num_unexpected_keys} parameters are unexpected."
         )
+
+    trainable = sum(param.numel() for param in model.parameters() if param.requires_grad)
+    total = sum(param.numel() for param in model.parameters())
+    print(
+        f"LoRA targets={len(target_modules)}, trainable={trainable:,}/{total:,} "
+        f"({100 * trainable / total:.4f}%)"
+    )
+    return model
 
 
 def load_state_dict(file_path, torch_dtype=None):

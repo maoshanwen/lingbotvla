@@ -3,10 +3,11 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-/home/wangsf/lingbot_competition/team_submission_lora}"
 MODEL_PATH="${1:?usage: $0 /path/to/checkpoint/hf_ckpt [method_name]}"
-METHOD_NAME="${2:-lora_sample_eval}"
+METHOD_NAME="${2:-trained_branch_sample_eval}"
 OUTPUT_BASE="${OUTPUT_BASE:-/home/wangsf/lingbot_competition/eval_results/lora_sample}"
 RESULT_JSON="${RESULT_JSON:-${OUTPUT_BASE}/${METHOD_NAME}.json}"
 
+# Run once after a branch finishes training; this is not used for checkpoint selection.
 # Calibrated against the 50-task clean baseline:
 # 0%, 2%, 26% -> 9.33%, versus the full clean score of 9.38%.
 SAMPLE_TASKS="place_burger_fries,rotate_qrcode,open_laptop"

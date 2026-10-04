@@ -49,6 +49,7 @@ conda_sh="${CONDA_SH:-/path/to/miniconda3/etc/profile.d/conda.sh}"
 start_port=9330
 pid_name="test_pid"
 num_tasks=50
+custom_tasks=""
 num_gpus=1
 num_per_gpu=1
 use_length=50
@@ -72,6 +73,7 @@ while [[ $# -gt 0 ]]; do
         --start_port)        start_port="$2";        shift 2 ;;
         --pid_name)          pid_name="$2";          shift 2 ;;
         --num_tasks)         num_tasks="$2";         shift 2 ;;
+        --tasks)             custom_tasks="$2";      shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
         --num_per_gpu)       num_per_gpu="$2";       shift 2 ;;
         --use_length)        use_length="$2";        shift 2 ;;
@@ -99,6 +101,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --start_port        starting port (default: 9330)"
             echo "  --pid_name          PID file prefix (default: test_pid)"
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
+            echo "  --tasks             comma-separated task names; overrides --num_tasks"
             echo "  --num_gpus          total GPUs (default: 1)"
             echo "  --num_per_gpu       inference servers per GPU (default: 1)"
             echo "  --use_length        chunk length (default: 50)"
@@ -193,6 +196,10 @@ echo -e "\033[36mSim-side python (${sim_env}): ${sim_python} ($(${sim_python} --
 conda deactivate 2>/dev/null || true
 
 # ===== Task count validation =====
+if [ -n "$custom_tasks" ]; then
+    IFS=',' read -r -a custom_task_list <<< "$custom_tasks"
+    num_tasks=${#custom_task_list[@]}
+fi
 if [ "$num_tasks" -gt 50 ]; then
     echo -e "\033[31mError: num_tasks ${num_tasks} exceeds max 50; use 1~50\033[0m"
     exit 1
@@ -215,6 +222,10 @@ fi
 
 # ===== Full task list (50) =====
 task_list_all=("lift_pot" "hanging_mug" "stack_bowls_three" "scan_object" "handover_block" "click_bell" "put_object_cabinet" "open_microwave" "stack_blocks_three" "place_shoe" "adjust_bottle" "beat_block_hammer" "blocks_ranking_rgb" "blocks_ranking_size" "click_alarmclock" "dump_bin_bigbin" "grab_roller" "handover_mic" "move_can_pot" "move_pillbottle_pad" "move_playingcard_away" "place_cans_plasticbox" "place_container_plate" "place_dual_shoes" "place_empty_cup" "place_fan" "place_mouse_pad" "place_object_basket" "place_object_scale" "place_object_stand" "place_phone_stand" "move_stapler_pad" "open_laptop" "pick_diverse_bottles" "pick_dual_bottles" "place_a2b_left" "place_a2b_right" "place_bread_basket" "place_bread_skillet" "place_burger_fries" "place_can_basket" "press_stapler" "rotate_qrcode" "shake_bottle_horizontally" "shake_bottle" "stack_blocks_two" "stack_bowls_two" "stamp_seal" "turn_switch" "put_bottles_dustbin")
+
+if [ -n "$custom_tasks" ]; then
+    task_list_all=("${custom_task_list[@]}")
+fi
 
 # Build the sim task queue
 task_queue=()

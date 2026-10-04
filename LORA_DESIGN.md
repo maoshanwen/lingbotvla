@@ -31,7 +31,7 @@ transformer rather than only Q/V attention.
 1. Run `MAX_STEPS=10` as an integration and memory smoke test after evaluation
    releases the GPUs.
 2. Run 100 steps to measure step time, peak memory, and loss stability.
-3. Run the default 1,000-step experiment and save at steps 500 and 1,000.
+3. Train for 2 epochs (about 219k optimizer steps for the current clean-data estimate), saving every 10,000 steps. Select the best checkpoint with a fixed validation/evaluation subset rather than assuming the final checkpoint is best.
 4. Evaluate both checkpoints on a small fixed task subset before choosing a
    longer run.
 5. Only then compare rank 8/16/32 or broaden the scope to

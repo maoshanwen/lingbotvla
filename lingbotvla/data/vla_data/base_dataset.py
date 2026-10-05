@@ -158,7 +158,7 @@ class VLADataset(Dataset):
         robot_config_root,
         config=None,
         processor=None,
-        video_backend = 'torchcodec',
+        video_backend = 'pyav',
         chunk_size = 50,
         image_size = (224, 224),
         do_nomalize = True,
@@ -209,6 +209,7 @@ class VLADataset(Dataset):
             repo_id=repo_id,
             image_transforms=Resize(image_size),
             delta_timestamps=merged_delta,
+            video_backend=video_backend,
             load_image=load_image
         )
 

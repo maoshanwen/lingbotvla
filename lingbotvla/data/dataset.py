@@ -88,6 +88,7 @@ def build_vla_dataset(
     processor = processor if processor is not None and 'qwen' in model_config.tokenizer_path.lower() else None
     img_size = getattr(dataset_config, 'img_size', 256)
     image_augment = bool(getattr(dataset_config, "image_augment", False))
+    video_backend = getattr(dataset_config, "video_backend", "pyav")
     use_future_image = getattr(dataset_config, 'use_future_image', False)
 
     if data_name == 'multi':
@@ -104,6 +105,7 @@ def build_vla_dataset(
             do_nomalize=do_nomalize,
             return_item=return_item,
             image_augment=image_augment,
+            video_backend=video_backend,
             use_depth_align=use_depth_align,
             use_future_image=use_future_image
         )
@@ -121,6 +123,7 @@ def build_vla_dataset(
             chunk_size=chunk_size,
             disabled_image_features=disabled_image_features,
             image_augment=image_augment,
+            video_backend=video_backend,
             use_depth_align=use_depth_align,
             use_future_image=use_future_image
         )

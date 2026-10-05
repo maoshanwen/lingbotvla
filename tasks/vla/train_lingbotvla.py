@@ -123,12 +123,12 @@ class MyTrainingArguments(TrainingArguments):
         default=False,
         metadata={"help": "Enable parameter-efficient LoRA fine-tuning."},
     )
-    lora_rank: int = field(default=16)
-    lora_alpha: int = field(default=32)
-    lora_dropout: float = field(default=0.05)
-    lora_use_rslora: bool = field(default=True)
+    lora_rank: int = field(default=32)
+    lora_alpha: int = field(default=16)
+    lora_dropout: float = field(default=0.0)
+    lora_use_rslora: bool = field(default=False)
     lora_target_scope: str = field(
-        default="action_expert",
+        default="action_expert+vlm",
         metadata={"help": "One of: action_expert, vlm, vision, action_expert+vlm."},
     )
     lora_target_modules: str = field(
@@ -524,10 +524,24 @@ def main():
     if args.train.use_compile:
         model = torch.compile(model)
 
-    moe_param_groups = get_moe_param_groups(model, args.train)
-    if moe_param_groups is not None:
-        n_expert = sum(len(g["params"]) for g in moe_param_groups if g["lr"] != args.train.lr)
-        group_summary = {f"lr={g['lr']:.2e}": len(g["params"]) for g in moe_param_groups}
+    optimizer_param_groups = get_moe_param_groups(model, args.train)
+    if args.train.use_lora and any(
+        param.requires_grad and "visual" in name
+        for name, param in model.named_parameters()
+    ):
+        optimizer_param_groups = get_param_groups(
+            model,
+            default_lr=args.train.lr,
+            vit_lr=args.train.vit_lr,
+        )
+        group_summary = {
+            f"lr={group['lr']:.2e}": sum(param.numel() for param in group["params"])
+            for group in optimizer_param_groups
+        }
+        logger.info_rank0(f"LoRA/vision differential LR groups: {group_summary}")
+    elif optimizer_param_groups is not None:
+        n_expert = sum(len(g["params"]) for g in optimizer_param_groups if g["lr"] != args.train.lr)
+        group_summary = {f"lr={g['lr']:.2e}": len(g["params"]) for g in optimizer_param_groups}
         logger.info_rank0(
             f"MoE expert LR scaling enabled: {n_expert} expert param tensors use scaled LR. "
             f"Groups: {group_summary}"
@@ -563,7 +577,7 @@ def main():
             fused=False,
             optimizer_type=args.train.optimizer,
             post_training=args.model.post_training,
-            param_groups=moe_param_groups,
+            param_groups=optimizer_param_groups,
         )
 
     # Register loss-free load balancing hook (before optimizer.step).

@@ -22,6 +22,11 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ -f "$TRAIN_MANIFEST" ]] || die "Clean LeRobot manifest missing: $TRAIN_MANIFEST"
 grep -Eiq 'randomized|randomisation|randomization' "$TRAIN_MANIFEST" \
   && die "Randomized data is evaluation-only: $TRAIN_MANIFEST"
+manifest_count=$(grep -Ec '^[^#[:space:]]+[[:space:]]+[^[:space:]]+' "$TRAIN_MANIFEST")
+[[ "$manifest_count" -eq 50 ]] \
+  || die "Competition training manifest must contain exactly 50 clean tasks; found ${manifest_count}"
+awk 'NF && $1 !~ /^#/ && tolower($2) !~ /clean/ {print NR ":" $0; bad=1} END {exit bad}' "$TRAIN_MANIFEST" \
+  || die "Every competition training path must be a clean dataset"
 
 gpu_count=$(awk -F, '{print NF}' <<<"$CUDA_DEVICES")
 (( GLOBAL_BATCH_SIZE % gpu_count == 0 )) \

@@ -25,6 +25,7 @@ data:
     - effector.position: bounds_99_woclip
   num_workers: 8
   use_future_image: false
+  image_augment: true
 
 train:
   output_dir: /path/to/save_ckpt
@@ -57,7 +58,8 @@ train:
   rmpad: false
   rmpad_with_pos_ids: false
   ulysses_parallel_size: 1
-  freeze_vision_encoder: true
+  freeze_vision_encoder: false
+  vit_lr: 2.0e-5
   tokenizer_max_length: 72
   action_dim: 55
   max_action_dim: 55
@@ -76,11 +78,11 @@ train:
   enable_fp32: false
   enable_resume: true
   use_lora: true
-  lora_rank: 16
-  lora_alpha: 32
-  lora_dropout: 0.05
-  lora_use_rslora: true
-  lora_target_scope: action_expert
+  lora_rank: 32
+  lora_alpha: 16
+  lora_dropout: 0.0
+  lora_use_rslora: false
+  lora_target_scope: action_expert+vlm
   lora_target_modules: q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj
-  lora_modules_to_save: state_proj,action_in_proj,action_out_proj
+  lora_modules_to_save: state_proj,action_in_proj,action_out_proj,qwenvl.visual
   align_params: {}

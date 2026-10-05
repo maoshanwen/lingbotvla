@@ -5,18 +5,18 @@ PROJECT_ROOT="${PROJECT_ROOT:-/home/wangsf/lingbot_competition/team_submission_l
 SOURCE_ROOT="${SOURCE_ROOT:-/home/wangsf/lingbot_competition/data/RoboTwin2.0-clean/dataset}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-/home/wangsf/lingbot_competition/data/lerobot_clean_v3}"
 WORKERS="${WORKERS:-10}"
-PYTHON="${PYTHON:-/home/wangsf/.conda/envs/lingbotvla/bin/python}"
+CONVERTER_PYTHON="${CONVERTER_PYTHON:-/home/wangsf/.conda/envs/lingbotvla/bin/python}"
 LOG_ROOT="${LOG_ROOT:-/home/wangsf/lingbot_competition/data_conversion_logs}"
 
 mkdir -p "$OUTPUT_ROOT" "$LOG_ROOT" "$PROJECT_ROOT/assets/training_data"
 mapfile -t zips < <(find "$SOURCE_ROOT" -mindepth 2 -maxdepth 2 -type f -name '*clean_50.zip' | sort)
 [[ ${#zips[@]} -eq 50 ]] || { echo "Expected 50 clean ZIP files, found ${#zips[@]}" >&2; exit 1; }
 
-export PROJECT_ROOT OUTPUT_ROOT PYTHON LOG_ROOT PYTHONNOUSERSITE=1
+export PROJECT_ROOT OUTPUT_ROOT CONVERTER_PYTHON LOG_ROOT PYTHONNOUSERSITE=1
 printf '%s\0' "${zips[@]}" | xargs -0 -n1 -P "$WORKERS" bash -c '
   zip_path="$1"
   task_name=$(basename "$(dirname "$zip_path")")
-  "$PYTHON" "$PROJECT_ROOT/scripts/convert_robotwin_clean_to_lerobot.py" \
+  "$CONVERTER_PYTHON" "$PROJECT_ROOT/scripts/convert_robotwin_clean_to_lerobot.py" \
     "$zip_path" "$OUTPUT_ROOT" --val-episodes 5 \
     >"$LOG_ROOT/${task_name}.log" 2>&1
 ' _

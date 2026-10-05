@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -Eeo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT:-/home/wangsf/lingbot_competition/team_submission_lora}"
 CONDA_SH="${CONDA_SH:-/opt/conda/etc/profile.d/conda.sh}"

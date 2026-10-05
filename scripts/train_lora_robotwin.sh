@@ -41,6 +41,7 @@ export CUDA_VISIBLE_DEVICES="$CUDA_DEVICES"
 export MASTER_PORT TOKENIZERS_PARALLELISM=false
 export HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export PYTHONNOUSERSITE=1
+export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 exec bash train.sh tasks/vla/train_lingbotvla.py configs/vla/robotwin/robotwin_lora.yaml \
   --model.model_path "$BASE_MODEL" \

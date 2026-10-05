@@ -270,6 +270,19 @@ def load_model_weights(
                     _dispatch_parameter(model, name, tensor, dtensor_factory)
             else:
                 if post_training:
+                    inactive_alignment_prefixes = (
+                        "model.depth_align_",
+                        "model.future_depth_align_",
+                        "model.current_video_align_",
+                        "model.future_video_align_",
+                        "model.current_shared_task_proj.",
+                        "model.future_shared_task_proj.",
+                    )
+                    if name.startswith(inactive_alignment_prefixes):
+                        logger.info_rank0(
+                            f"Skipping inactive alignment weight from checkpoint: {name}"
+                        )
+                        continue
                     error_msg = f"Unexpected key '{name}' found in state dict during Post-Training. This is not allowed!!!"
                     logger.info_rank0(error_msg)
                     raise KeyError(error_msg)

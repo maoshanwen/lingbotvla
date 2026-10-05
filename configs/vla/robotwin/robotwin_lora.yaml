@@ -26,7 +26,6 @@ data:
   num_workers: 8
   use_future_image: false
   image_augment: true
-  video_backend: pyav
 
 train:
   output_dir: /path/to/save_ckpt

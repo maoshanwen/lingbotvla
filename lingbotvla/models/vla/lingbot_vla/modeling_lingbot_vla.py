@@ -672,19 +672,35 @@ class LingbotVlaPolicy(PreTrainedModel):
             images, img_masks, lang_tokens, lang_masks, state, actions, noise, time, vlm_causal, self.config.loss_type, depth_targets, precompute_grid_thw=precompute_grid_thw, future_depth_targets=future_depth_targets,
         )
 
-        if joint_mask is not None:
-            if 'repeat' in self.config.loss_type:
-                joint_mask = joint_mask.repeat(2,1)
-            mask_expanded = joint_mask.unsqueeze(1).expand(-1, losses.size(1), -1) # (B, T, D)
-            masked_losses = losses * mask_expanded
+        temporal_valid = None
+        if action_is_pad is not None:
+            temporal_valid = ~action_is_pad.bool()
+            loss_dict["action_padding_ratio"] = action_is_pad.float().mean().detach()
 
-            valid_counts = mask_expanded.sum(dim=(1, 2)).clamp(min=1)
+        if joint_mask is not None:
+            valid_mask = joint_mask.bool().unsqueeze(1).expand(-1, losses.size(1), -1)
+            if 'repeat' in self.config.loss_type:
+                valid_mask = valid_mask.repeat(2, 1, 1)
+                if temporal_valid is not None:
+                    temporal_valid = temporal_valid.repeat(2, 1)
+            if temporal_valid is not None:
+                valid_mask = valid_mask & temporal_valid.unsqueeze(-1)
+            masked_losses = losses * valid_mask
+
+            valid_counts = valid_mask.sum(dim=(1, 2)).clamp(min=1)
             batch_mean_losses = masked_losses.sum(dim=(1, 2)) / valid_counts
-            loss_vla = masked_losses.sum() / mask_expanded.sum().clamp(min=1)
+            loss_vla = masked_losses.sum() / valid_mask.sum().clamp(min=1)
         else:
             losses = losses[:, :, :self.config.action_dim]
-            batch_mean_losses = losses.mean(dim=(1, 2))
-            loss_vla = losses.mean()
+            if temporal_valid is not None:
+                valid_mask = temporal_valid.unsqueeze(-1).expand_as(losses)
+                masked_losses = losses * valid_mask
+                valid_counts = valid_mask.sum(dim=(1, 2)).clamp(min=1)
+                batch_mean_losses = masked_losses.sum(dim=(1, 2)) / valid_counts
+                loss_vla = masked_losses.sum() / valid_mask.sum().clamp(min=1)
+            else:
+                batch_mean_losses = losses.mean(dim=(1, 2))
+                loss_vla = losses.mean()
 
         loss_dict["batch_mean_losses"] = batch_mean_losses.detach()
 

@@ -990,6 +990,11 @@ def main():
                 writer.add_scalar("training/future_video_loss", total_future_video_loss, global_step)
                 writer.add_scalar("training/sequence_wise_loss", total_seq_wise_loss, global_step)
                 writer.add_scalar("training/router_z_loss", total_router_z_loss, global_step)
+                if "action_padding_ratio" in loss_log:
+                    padding_ratio = loss_log["action_padding_ratio"]
+                    if torch.is_tensor(padding_ratio):
+                        padding_ratio = padding_ratio.detach().float().item()
+                    writer.add_scalar("training/action_padding_ratio", padding_ratio, global_step)
                 # MoE monitoring metrics.
                 #   moe_summary/*            -> every step (cheap cross-layer health glance)
                 #   moe_<metric>/layerXX     -> every moe_monitor_interval steps (per-layer, downsampled)

@@ -88,6 +88,9 @@ def build_vla_dataset(
     processor = processor if processor is not None and 'qwen' in model_config.tokenizer_path.lower() else None
     img_size = getattr(dataset_config, 'img_size', 256)
     image_augment = bool(getattr(dataset_config, "image_augment", False))
+    task_episode_balanced_sampling = bool(
+        getattr(dataset_config, "task_episode_balanced_sampling", False)
+    )
     video_backend = getattr(dataset_config, "video_backend", "pyav")
     use_future_image = getattr(dataset_config, 'use_future_image', False)
 
@@ -105,6 +108,7 @@ def build_vla_dataset(
             do_nomalize=do_nomalize,
             return_item=return_item,
             image_augment=image_augment,
+            task_episode_balanced_sampling=task_episode_balanced_sampling,
             video_backend=video_backend,
             use_depth_align=use_depth_align,
             use_future_image=use_future_image

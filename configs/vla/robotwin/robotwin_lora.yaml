@@ -26,6 +26,7 @@ data:
   num_workers: 8
   use_future_image: false
   image_augment: true
+  task_episode_balanced_sampling: true
 
 train:
   output_dir: /path/to/save_ckpt

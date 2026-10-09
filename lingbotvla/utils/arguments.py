@@ -240,6 +240,15 @@ class DataArguments:
             )
         },
     )
+    task_episode_balanced_sampling: bool = field(
+        default=False,
+        metadata={
+            "help": (
+                "Sample multi-task VLA datasets uniformly across tasks and episodes "
+                "while preserving the original epoch length."
+            )
+        },
+    )
     def __post_init__(self):
         if self.text_keys is None:
             if self.data_type == "plaintext":

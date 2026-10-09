@@ -58,6 +58,7 @@ class MultiVLADataset(Dataset):
         transform=None,
         prompt_type = 'global',
         image_augment = False,
+        task_episode_balanced_sampling = False,
         use_depth_align=False,
         use_future_image=False,
     ):
@@ -65,6 +66,7 @@ class MultiVLADataset(Dataset):
         self.config = config
         self.processor = processor
         self.return_item = return_item
+        self.task_episode_balanced_sampling = task_episode_balanced_sampling
 
         data_names, repo_ids  = get_all_tasks(repo_file)
         self.data_names, self.repo_ids = data_names, repo_ids
@@ -128,11 +130,36 @@ class MultiVLADataset(Dataset):
     def getdata(self, idx: int) -> dict[str, torch.Tensor]:
         if idx >= len(self):
             raise IndexError(f"Index {idx} out of bounds.")
-        # Determine which dataset to get an item from based on the index.
-        dataset_idx = np.searchsorted(self.dataset_start_index,  np.array([idx]), side='right') - 1
-        dataset_idx = dataset_idx[0]
-        dataset = self._datasets[dataset_idx]
-        item = dataset.getitem(idx - self.dataset_start_index[dataset_idx])
+        # By default datasets are concatenated. For multi-task robot training the
+        # optional balanced mapping gives every task and every episode equal weight,
+        # without changing the epoch length or materializing a sampling table.
+        if self.task_episode_balanced_sampling:
+            num_tasks = len(self._datasets)
+            dataset_idx = idx % num_tasks
+            task_position = idx // num_tasks
+            task_slots = (len(self) - 1 - dataset_idx) // num_tasks + 1
+            dataset = self._datasets[dataset_idx]
+            episodes = dataset.dataset_meta.episodes
+            num_episodes = len(episodes)
+            episode_idx = task_position % num_episodes
+            episode_position = task_position // num_episodes
+            episode_slots = (task_slots - 1 - episode_idx) // num_episodes + 1
+            episode = episodes[episode_idx]
+            episode_start = int(episode["dataset_from_index"])
+            episode_end = int(episode["dataset_to_index"])
+            episode_length = max(1, episode_end - episode_start)
+            local_offset = min(
+                episode_length - 1,
+                (episode_position * episode_length) // max(1, episode_slots),
+            )
+            local_idx = episode_start + local_offset
+        else:
+            dataset_idx = np.searchsorted(
+                self.dataset_start_index, np.array([idx]), side='right'
+            )[0] - 1
+            dataset = self._datasets[dataset_idx]
+            local_idx = idx - self.dataset_start_index[dataset_idx]
+        item = dataset.getitem(local_idx)
 
         if isinstance(item, list):
             if len(item) != 1:

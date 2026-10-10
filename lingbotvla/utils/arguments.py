@@ -487,6 +487,10 @@ class TrainingArguments:
         default=0,
         metadata={"help": "Number of steps between two checkpoint saves."},
     )
+    max_checkpoints_to_keep: int = field(
+        default=0,
+        metadata={"help": "Maximum number of complete checkpoints to keep. 0 keeps all checkpoints."},
+    )
     save_epochs: int = field(
         default=1,
         metadata={"help": "Number of epochs between two checkpoint saves."},

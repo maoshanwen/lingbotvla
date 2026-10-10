@@ -273,7 +273,21 @@ class LingbotVLAv2Server:
         print(f"loading model from: {path_to_pi_model}")
         
         # load training config
-        training_config_path = Path(path_to_pi_model).parent.parent.parent/'lingbotvla_cli.yaml'
+        # Exported post-training checkpoints normally live under
+        # <run>/checkpoints/global_step_x/hf_ckpt, so their training config can
+        # be discovered from the directory layout.  A foundation checkpoint,
+        # however, has no surrounding run directory.  Allow evaluation tools
+        # to provide the compatible runtime config explicitly in that case.
+        training_config_path = os.environ.get("LINGBOTVLA_TRAINING_CONFIG")
+        if training_config_path is None:
+            training_config_path = Path(path_to_pi_model).parent.parent.parent / "lingbotvla_cli.yaml"
+        else:
+            training_config_path = Path(training_config_path).expanduser()
+        if not training_config_path.is_file():
+            raise FileNotFoundError(
+                f"Training config not found: {training_config_path}. "
+                "Set LINGBOTVLA_TRAINING_CONFIG when evaluating a foundation checkpoint."
+            )
         with open(training_config_path, 'r') as f:
             training_config = yaml.safe_load(f)
         f.close()
@@ -330,7 +344,9 @@ class LingbotVLAv2Server:
             self.sample_actions_fn = torch.compile(self.vla.model.sample_actions)
 
         if self.robot_norm_path is None:
-            self.robot_norm_path = data_config.norm_stats_file
+            self.robot_norm_path = os.environ.get(
+                "LINGBOTVLA_ROBOT_NORM_PATH", data_config.norm_stats_file
+            )
 
         print('Model initialized ... ')
 

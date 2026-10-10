@@ -16,6 +16,7 @@
 #   --start_port        starting port (default: 9330)
 #   --pid_name          PID file prefix (default: test_pid)
 #   --num_tasks         number of sim tasks, taken in order from the task list (default: 50, max: 50)
+#   --task_names        comma-separated task subset (overrides --num_tasks)
 #   --num_gpus          total GPUs (default: 1)
 #   --num_per_gpu       inference servers per GPU (default: 1)
 #   --use_length        chunk length (default: 50)
@@ -49,6 +50,7 @@ conda_sh="${CONDA_SH:-/path/to/miniconda3/etc/profile.d/conda.sh}"
 start_port=9330
 pid_name="test_pid"
 num_tasks=50
+task_names="${TASK_NAMES:-}"
 num_gpus=1
 num_per_gpu=1
 use_length=50
@@ -72,6 +74,7 @@ while [[ $# -gt 0 ]]; do
         --start_port)        start_port="$2";        shift 2 ;;
         --pid_name)          pid_name="$2";          shift 2 ;;
         --num_tasks)         num_tasks="$2";         shift 2 ;;
+        --task_names)        task_names="$2";        shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
         --num_per_gpu)       num_per_gpu="$2";       shift 2 ;;
         --use_length)        use_length="$2";        shift 2 ;;
@@ -99,6 +102,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --start_port        starting port (default: 9330)"
             echo "  --pid_name          PID file prefix (default: test_pid)"
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
+            echo "  --task_names        comma-separated task subset (overrides --num_tasks)"
             echo "  --num_gpus          total GPUs (default: 1)"
             echo "  --num_per_gpu       inference servers per GPU (default: 1)"
             echo "  --use_length        chunk length (default: 50)"
@@ -203,8 +207,36 @@ policy_name=ACT
 train_config_name=0
 seed=0
 
+# ===== Full task list (50) =====
+task_list_all=("lift_pot" "hanging_mug" "stack_bowls_three" "scan_object" "handover_block" "click_bell" "put_object_cabinet" "open_microwave" "stack_blocks_three" "place_shoe" "adjust_bottle" "beat_block_hammer" "blocks_ranking_rgb" "blocks_ranking_size" "click_alarmclock" "dump_bin_bigbin" "grab_roller" "handover_mic" "move_can_pot" "move_pillbottle_pad" "move_playingcard_away" "place_cans_plasticbox" "place_container_plate" "place_dual_shoes" "place_empty_cup" "place_fan" "place_mouse_pad" "place_object_basket" "place_object_scale" "place_object_stand" "place_phone_stand" "move_stapler_pad" "open_laptop" "pick_diverse_bottles" "pick_dual_bottles" "place_a2b_left" "place_a2b_right" "place_bread_basket" "place_bread_skillet" "place_burger_fries" "place_can_basket" "press_stapler" "rotate_qrcode" "shake_bottle_horizontally" "shake_bottle" "stack_blocks_two" "stack_bowls_two" "stamp_seal" "turn_switch" "put_bottles_dustbin")
+
+# Build the sim task queue
+task_queue=()
+if [ -n "$task_names" ]; then
+    IFS=',' read -r -a requested_tasks <<< "$task_names"
+    for requested_task in "${requested_tasks[@]}"; do
+        found=false
+        for known_task in "${task_list_all[@]}"; do
+            if [ "$requested_task" = "$known_task" ]; then
+                found=true
+                break
+            fi
+        done
+        if ! $found; then
+            echo -e "\033[31mError: unknown RoboTwin task '${requested_task}'\033[0m"
+            exit 1
+        fi
+        task_queue+=("$requested_task")
+    done
+    num_tasks=${#task_queue[@]}
+else
+    for i in $(seq 0 $((num_tasks-1))); do
+        task_queue+=("${task_list_all[$i]}")
+    done
+fi
+
 # ===== Compute inference slot count =====
-# actual slots = min(num_tasks, num_gpus * num_per_gpu)
+# actual slots = min(selected tasks, num_gpus * num_per_gpu)
 # When tasks < max concurrency, spin up only as many servers as tasks to avoid
 # the waste of starting then shutting down extras.
 num_slots=$(( num_gpus * num_per_gpu ))
@@ -212,15 +244,6 @@ if [ "$num_tasks" -lt "$num_slots" ]; then
     echo -e "\033[36mnum_tasks ${num_tasks} < max slots ${num_slots}; starting servers by task count\033[0m"
     num_slots=$num_tasks
 fi
-
-# ===== Full task list (50) =====
-task_list_all=("lift_pot" "hanging_mug" "stack_bowls_three" "scan_object" "handover_block" "click_bell" "put_object_cabinet" "open_microwave" "stack_blocks_three" "place_shoe" "adjust_bottle" "beat_block_hammer" "blocks_ranking_rgb" "blocks_ranking_size" "click_alarmclock" "dump_bin_bigbin" "grab_roller" "handover_mic" "move_can_pot" "move_pillbottle_pad" "move_playingcard_away" "place_cans_plasticbox" "place_container_plate" "place_dual_shoes" "place_empty_cup" "place_fan" "place_mouse_pad" "place_object_basket" "place_object_scale" "place_object_stand" "place_phone_stand" "move_stapler_pad" "open_laptop" "pick_diverse_bottles" "pick_dual_bottles" "place_a2b_left" "place_a2b_right" "place_bread_basket" "place_bread_skillet" "place_burger_fries" "place_can_basket" "press_stapler" "rotate_qrcode" "shake_bottle_horizontally" "shake_bottle" "stack_blocks_two" "stack_bowls_two" "stamp_seal" "turn_switch" "put_bottles_dustbin")
-
-# Build the sim task queue
-task_queue=()
-for i in $(seq 0 $((num_tasks-1))); do
-    task_queue+=("${task_list_all[$i]}")
-done
 echo -e "\033[36mTasks this run (${num_tasks}): ${task_queue[*]}\033[0m"
 echo -e "\033[36mInference config: ${num_gpus} GPU x ${num_per_gpu} servers/GPU = ${num_slots} slots\033[0m"
 echo -e "\033[36mInference precision: use_bf16=${use_bf16}, use_fp32=${use_fp32}, use_compile=${use_compile}\033[0m"
@@ -230,6 +253,12 @@ batch_time=$(date +%Y%m%d_%H%M%S)
 # Extract experiment name and step from model_path (e.g. qwen35_robotwin_forward_no_mask_30k)
 _exp_name=$(echo "$model_path" | grep -oP '[^/]+(?=/checkpoints)')
 _step_num=$(echo "$model_path" | grep -oP 'global_step_\K\d+')
+if [ -z "$_exp_name" ]; then
+    _exp_name=$(basename "${model_path%/}")
+fi
+if [ -z "$_step_num" ]; then
+    _step_num=0
+fi
 _step_k=$(( _step_num / 1000 ))k
 run_dir="${output_base}/${_exp_name}_${_step_k}_${task_config}_${batch_time}"
 mkdir -p "${run_dir}/inference_logs" "${run_dir}/eval_logs"

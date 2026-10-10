@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from functools import partial
@@ -628,6 +629,67 @@ def main():
             epoch_step=epoch_step,
         )
 
+    def prune_old_complete_checkpoints() -> None:
+        """Keep only the newest configured number of complete DCP checkpoints."""
+        keep = getattr(args.train, "max_checkpoints_to_keep", 0)
+        if keep <= 0:
+            return
+
+        # Checkpointer.save is collective. Rank 0 performs filesystem cleanup,
+        # then all ranks wait before training continues.
+        if args.train.global_rank == 0:
+            checkpoint_dir = args.train.save_checkpoint_path
+            complete = []
+            pattern = re.compile(r"global_step_(\d+)")
+
+            if args.train.ckpt_manager != "dcp":
+                logger.warning(
+                    "Checkpoint retention currently supports ckpt_manager='dcp' only; "
+                    "skipping automatic cleanup."
+                )
+            elif os.path.isdir(checkpoint_dir):
+                for dirname in os.listdir(checkpoint_dir):
+                    match = pattern.fullmatch(dirname)
+                    if not match:
+                        continue
+
+                    path = os.path.join(checkpoint_dir, dirname)
+                    model_metadata = os.path.join(path, "model", ".metadata")
+                    optimizer_metadata = os.path.join(path, "optimizer", ".metadata")
+                    extra_state_dir = os.path.join(path, "extra_state")
+                    has_extra_state = os.path.isdir(extra_state_dir) and any(
+                        name.startswith("extra_state_rank_") and name.endswith(".pt")
+                        for name in os.listdir(extra_state_dir)
+                    )
+                    hf_required = (
+                        args.train.save_hf_weights
+                        and not args.train.async_save_hf_weights
+                    )
+                    has_hf_weights = (
+                        not hf_required
+                        or os.path.isfile(os.path.join(path, "hf_ckpt", "model.safetensors"))
+                        or os.path.isfile(
+                            os.path.join(path, "hf_ckpt", "model.safetensors.index.json")
+                        )
+                    )
+
+                    if (
+                        os.path.isfile(model_metadata)
+                        and os.path.isfile(optimizer_metadata)
+                        and has_extra_state
+                        and has_hf_weights
+                    ):
+                        complete.append((int(match.group(1)), path))
+                    else:
+                        logger.warning(f"Skipping incomplete checkpoint during retention: {path}")
+
+                complete.sort(key=lambda item: item[0], reverse=True)
+                for _, old_path in complete[keep:]:
+                    shutil.rmtree(old_path)
+                    logger.info(f"Removed old complete checkpoint: {old_path}")
+
+        dist.barrier()
+
     environ_meter = helper.EnvironMeter(
         config=model_config,
         global_batch_size=args.train.global_batch_size,
@@ -1120,6 +1182,7 @@ def main():
                     current_epoch_for_eval,
                     current_epoch_step_for_eval,
                 )
+                prune_old_complete_checkpoints()
 
             if args.train.max_steps is not None and global_step >= args.train.max_steps:
                 logger.info_rank0(f"Reached max_steps={args.train.max_steps}, stopping training.")
@@ -1159,6 +1222,7 @@ def main():
                     current_epoch_for_eval,
                     current_epoch_step_for_eval,
                 )
+                prune_old_complete_checkpoints()
             break
         if args.train.save_epochs and (epoch + 1) % args.train.save_epochs == 0:
             helper.empty_cache()
@@ -1185,6 +1249,7 @@ def main():
                 current_epoch_for_eval,
                 current_epoch_step_for_eval,
             )
+            prune_old_complete_checkpoints()
 
     if max_steps_driven:
         data_loader_tqdm.close()

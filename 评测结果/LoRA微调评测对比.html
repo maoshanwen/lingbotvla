@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LoRA evaluation heatmap</title>
+  <style>
+    :root { --ink:#17242b; --muted:#65757d; --line:#dce6e9; --paper:#f4f8f8; --teal:#075e6b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:14px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    .page { max-width:1480px; margin:auto; padding:38px 28px 60px; }
+    header { display:flex; gap:24px; justify-content:space-between; align-items:flex-end; margin-bottom:20px; }
+    h1 { margin:0 0 6px; font-size:clamp(26px,3vw,42px); letter-spacing:-.035em; }
+    .subtitle { color:var(--muted); }
+    .warning { margin:16px 0 22px; padding:13px 16px; border:1px solid #e5c77c; border-radius:12px; background:#fff9e8; color:#69501b; }
+    .toolbar { display:flex; gap:10px; flex-wrap:wrap; }
+    button { border:1px solid var(--line); background:white; padding:8px 12px; border-radius:9px; cursor:pointer; color:var(--ink); }
+    button.active { color:white; background:var(--teal); border-color:var(--teal); }
+    .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:22px; }
+    .metric { background:white; border:1px solid var(--line); border-radius:14px; padding:15px 17px; box-shadow:0 6px 22px rgba(30,64,70,.05); }
+    .metric .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.08em; }
+    .metric .value { margin-top:5px; font-size:25px; font-weight:750; }
+    .metric .detail { color:var(--muted); font-size:12px; margin-top:2px; }
+    .grids { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+    .panel { background:white; border:1px solid var(--line); border-radius:16px; overflow:hidden; box-shadow:0 8px 26px rgba(30,64,70,.06); }
+    .panel-title { padding:17px 18px 14px; border-bottom:1px solid var(--line); }
+    .panel-title h2 { margin:0; font-size:21px; }
+    .panel-title p { margin:3px 0 0; color:var(--muted); font-size:12px; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; }
+    th { position:sticky; top:0; z-index:2; background:#f8fbfb; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em; }
+    th,td { padding:7px 10px; border-bottom:1px solid #edf2f3; text-align:center; }
+    th:first-child,td:first-child { width:43%; text-align:left; padding-left:18px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    tbody tr:hover td:first-child { background:#f7fbfb; }
+    .heat { font-variant-numeric:tabular-nums; font-weight:650; }
+    .delta { font-variant-numeric:tabular-nums; font-weight:700; }
+    .delta.up { color:#08783f; } .delta.down { color:#b33d38; } .delta.flat { color:#738187; }
+    .missing { color:#a4afb3; background:#f5f7f7 !important; }
+    footer { color:var(--muted); margin-top:18px; font-size:12px; }
+    @media (max-width:900px) { .grids{grid-template-columns:1fr}.summary{grid-template-columns:1fr 1fr} header{align-items:flex-start;flex-direction:column} }
+    @media print { body{background:white}.page{padding:10px}.toolbar{display:none}.panel,.metric{box-shadow:none}.warning{break-inside:avoid} }
+  </style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <div><h1 id="title"></h1><div class="subtitle">RoboTwin · Base 与 LoRA 逐任务成功率对比</div></div>
+    <div class="toolbar" aria-label="row filter">
+      <button class="active" data-filter="all">全部任务</button>
+      <button data-filter="up">仅进步</button>
+      <button data-filter="down">仅退步</button>
+      <button data-filter="delta">按变化排序</button>
+    </div>
+  </header>
+  <div class="warning" id="warning"></div>
+  <section class="summary" id="summary"></section>
+  <section class="grids">
+    <article class="panel"><div class="panel-title"><h2 id="clean-title"></h2><p>固定场景评测</p></div><div id="clean"></div></article>
+    <article class="panel"><div class="panel-title"><h2 id="randomized-title"></h2><p>仿真器按随机种子现场生成场景</p></div><div id="randomized"></div></article>
+  </section>
+  <footer>成功率来自评测目录中的 <code>_result.txt</code>；该页面不依赖外部资源，可直接保存、截图或打印为 PDF。</footer>
+</main>
+<script>
+const DATA = {"title": "LingBot-VLA LoRA R32 · 90k Evaluation", "baselineLabel": "Base", "loraLabel": "LoRA-90k", "baselineEpisodes": 100, "loraEpisodes": 1, "clean": {"baseline": {"adjust_bottle": 0.0, "beat_block_hammer": 0.02, "blocks_ranking_rgb": 0.0, "blocks_ranking_size": 0.02, "click_alarmclock": 0.34, "click_bell": 0.08, "dump_bin_bigbin": 0.01, "grab_roller": 0.0, "handover_block": 0.0, "handover_mic": 0.0, "hanging_mug": 0.0, "lift_pot": 0.0, "move_can_pot": 0.18, "move_pillbottle_pad": 0.0, "move_playingcard_away": 0.21, "move_stapler_pad": 0.0, "open_laptop": 0.26, "open_microwave": 0.79, "pick_diverse_bottles": 0.0, "pick_dual_bottles": 0.0, "place_a2b_left": 0.08, "place_a2b_right": 0.12, "place_bread_basket": 0.0, "place_bread_skillet": 0.0, "place_burger_fries": 0.0, "place_can_basket": 0.0, "place_cans_plasticbox": 0.0, "place_container_plate": 0.0, "place_dual_shoes": 0.0, "place_empty_cup": 0.0, "place_fan": 0.0, "place_mouse_pad": 0.0, "place_object_basket": 0.0, "place_object_scale": 0.0, "place_object_stand": 0.05, "place_phone_stand": 0.0, "place_shoe": 0.0, "press_stapler": 0.97, "put_bottles_dustbin": 0.0, "put_object_cabinet": 0.0, "rotate_qrcode": 0.02, "scan_object": 0.0, "shake_bottle": 0.52, "shake_bottle_horizontally": 0.48, "stack_blocks_three": 0.0, "stack_blocks_two": 0.0, "stack_bowls_three": 0.0, "stack_bowls_two": 0.01, "stamp_seal": 0.02, "turn_switch": 0.51}, "lora": {"adjust_bottle": 0.0, "beat_block_hammer": 0.0, "blocks_ranking_rgb": 0.0, "blocks_ranking_size": 0.0, "click_alarmclock": 1.0, "click_bell": 1.0, "dump_bin_bigbin": 1.0, "grab_roller": 1.0, "handover_block": 0.0, "handover_mic": 0.0, "hanging_mug": 0.0, "lift_pot": 0.0, "move_can_pot": 0.0, "move_pillbottle_pad": 0.0, "move_playingcard_away": 1.0, "move_stapler_pad": 0.0, "open_laptop": 0.0, "open_microwave": 0.0, "pick_diverse_bottles": 1.0, "pick_dual_bottles": 0.0, "place_a2b_left": 0.0, "place_a2b_right": 0.0, "place_bread_basket": 0.0, "place_bread_skillet": 0.0, "place_burger_fries": 1.0, "place_can_basket": 0.0, "place_cans_plasticbox": 0.0, "place_container_plate": 0.0, "place_dual_shoes": 0.0, "place_empty_cup": 1.0, "place_fan": 0.0, "place_mouse_pad": 0.0, "place_object_basket": 1.0, "place_object_scale": 0.0, "place_object_stand": 0.0, "place_phone_stand": 0.0, "place_shoe": 0.0, "press_stapler": 1.0, "put_bottles_dustbin": 0.0, "put_object_cabinet": 0.0, "rotate_qrcode": 1.0, "scan_object": 0.0, "shake_bottle": 1.0, "shake_bottle_horizontally": 1.0, "stack_blocks_three": 0.0, "stack_blocks_two": 0.0, "stack_bowls_three": 0.0, "stack_bowls_two": 0.0, "stamp_seal": 0.0, "turn_switch": 0.0}}, "randomized": {"baseline": {"adjust_bottle": 0.0, "beat_block_hammer": 0.01, "blocks_ranking_rgb": 0.0, "blocks_ranking_size": 0.0, "click_alarmclock": 0.47, "click_bell": 0.28, "dump_bin_bigbin": 0.0, "grab_roller": 0.0, "handover_block": 0.0, "handover_mic": 0.0, "hanging_mug": 0.0, "lift_pot": 0.0, "move_can_pot": 0.14, "move_pillbottle_pad": 0.0, "move_playingcard_away": 0.22, "move_stapler_pad": 0.0, "open_laptop": 0.2, "open_microwave": 0.81, "pick_diverse_bottles": 0.0, "pick_dual_bottles": 0.0, "place_a2b_left": 0.16, "place_cans_plasticbox": 0.0, "place_container_plate": 0.0, "place_dual_shoes": 0.0, "place_empty_cup": 0.0, "place_fan": 0.0, "place_mouse_pad": 0.0, "place_object_scale": 0.01, "place_object_stand": 0.01, "place_phone_stand": 0.03, "place_shoe": 0.0, "put_object_cabinet": 0.0, "scan_object": 0.0, "stack_blocks_three": 0.0, "stack_bowls_three": 0.0, "place_a2b_right": 0.12, "place_bread_basket": 0.01, "place_bread_skillet": 0.0, "place_burger_fries": 0.0, "place_can_basket": 0.0, "place_object_basket": 0.0, "press_stapler": 0.94, "put_bottles_dustbin": 0.0, "rotate_qrcode": 0.01, "shake_bottle": 0.6, "shake_bottle_horizontally": 0.58, "stack_blocks_two": 0.0, "stack_bowls_two": 0.0, "stamp_seal": 0.01, "turn_switch": 0.27}, "lora": {"adjust_bottle": 1.0, "beat_block_hammer": 1.0, "blocks_ranking_rgb": 0.0, "blocks_ranking_size": 0.0, "click_alarmclock": 0.0, "click_bell": 1.0, "dump_bin_bigbin": 1.0, "grab_roller": 0.0, "handover_block": 0.0, "handover_mic": 0.0, "hanging_mug": 0.0, "lift_pot": 0.0, "move_can_pot": 0.0, "move_pillbottle_pad": 0.0, "move_playingcard_away": 1.0, "move_stapler_pad": 0.0, "open_laptop": 0.0, "open_microwave": 0.0, "pick_diverse_bottles": 0.0, "pick_dual_bottles": 0.0, "place_a2b_left": 0.0, "place_a2b_right": 1.0, "place_bread_basket": 0.0, "place_bread_skillet": 0.0, "place_burger_fries": 0.0, "place_can_basket": 0.0, "place_cans_plasticbox": 0.0, "place_container_plate": 0.0, "place_dual_shoes": 0.0, "place_empty_cup": 0.0, "place_fan": 0.0, "place_mouse_pad": 0.0, "place_object_basket": 0.0, "place_object_scale": 0.0, "place_object_stand": 0.0, "place_phone_stand": 0.0, "place_shoe": 0.0, "press_stapler": 1.0, "put_bottles_dustbin": 0.0, "put_object_cabinet": 0.0, "rotate_qrcode": 0.0, "scan_object": 0.0, "shake_bottle": 1.0, "shake_bottle_horizontally": 1.0, "stack_blocks_three": 0.0, "stack_blocks_two": 0.0, "stack_bowls_three": 0.0, "stack_bowls_two": 0.0, "stamp_seal": 0.0, "turn_switch": 0.0}}};
+let filter = 'all';
+const pct = x => x == null ? '—' : `${(x*100).toFixed(1)}%`;
+const mean = obj => { const v=Object.values(obj); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; };
+function color(v){ if(v==null)return ''; const a=.07+.82*v; return `rgba(1,103,120,${a})`; }
+function textColor(v){ return v!=null && v>.52 ? '#fff' : '#17333a'; }
+function rowsFor(setting){
+  const d=DATA[setting], tasks=[...new Set([...Object.keys(d.baseline),...Object.keys(d.lora)])].sort();
+  let rows=tasks.map(task=>({task,b:d.baseline[task]??null,l:d.lora[task]??null})).map(r=>({...r,delta:r.b==null||r.l==null?null:r.l-r.b}));
+  if(filter==='up') rows=rows.filter(r=>r.delta>0);
+  if(filter==='down') rows=rows.filter(r=>r.delta<0);
+  if(filter==='delta') rows.sort((a,b)=>(b.delta??-9)-(a.delta??-9));
+  return rows;
+}
+function renderTable(setting){
+  const rows=rowsFor(setting);
+  const head=`<table><thead><tr><th>Task</th><th>${DATA.baselineLabel}</th><th>${DATA.loraLabel}</th><th>Δ</th></tr></thead><tbody>`;
+  const body=rows.map(r=>{
+    const delta=r.delta==null?'—':`${r.delta>0?'+':''}${(r.delta*100).toFixed(1)}`;
+    const cls=r.delta==null||r.delta===0?'flat':r.delta>0?'up':'down';
+    const cell=(v,episodes)=>`<td class="heat ${v==null?'missing':''}" title="${episodes} episode(s)" style="background:${color(v)};color:${textColor(v)}">${pct(v)}</td>`;
+    return `<tr><td title="${r.task}">${r.task}</td>${cell(r.b,DATA.baselineEpisodes)}${cell(r.l,DATA.loraEpisodes)}<td class="delta ${cls}">${delta}</td></tr>`;
+  }).join('');
+  document.getElementById(setting).innerHTML=head+body+'</tbody></table>';
+}
+function render(){
+  document.getElementById('title').textContent=DATA.title;
+  const cB=mean(DATA.clean.baseline),cL=mean(DATA.clean.lora),rB=mean(DATA.randomized.baseline),rL=mean(DATA.randomized.lora);
+  document.getElementById('clean-title').textContent=`Clean · ${DATA.loraLabel} ${pct(cL)}`;
+  document.getElementById('randomized-title').textContent=`Randomized · ${DATA.loraLabel} ${pct(rL)}`;
+  const cards=[['Clean Base',cB,`${Object.keys(DATA.clean.baseline).length} tasks × ${DATA.baselineEpisodes} episodes`],['Clean LoRA',cL,`${Object.keys(DATA.clean.lora).length} tasks × ${DATA.loraEpisodes} episode(s)`],['Randomized Base',rB,`${Object.keys(DATA.randomized.baseline).length} tasks × ${DATA.baselineEpisodes} episodes`],['Randomized LoRA',rL,`${Object.keys(DATA.randomized.lora).length} tasks × ${DATA.loraEpisodes} episode(s)`]];
+  document.getElementById('summary').innerHTML=cards.map(x=>`<div class="metric"><div class="label">${x[0]}</div><div class="value">${pct(x[1])}</div><div class="detail">${x[2]}</div></div>`).join('');
+  document.getElementById('warning').innerHTML=`<strong>样本量提示：</strong>${DATA.baselineLabel} 每任务 ${DATA.baselineEpisodes} 局，${DATA.loraLabel} 当前每任务 ${DATA.loraEpisodes} 局。LoRA 的 0% / 100% 是小样本结果，只用于快速筛查；正式精度需等多 episode 评测完成后刷新。`;
+  renderTable('clean'); renderTable('randomized');
+}
+document.querySelectorAll('button[data-filter]').forEach(btn=>btn.addEventListener('click',()=>{filter=btn.dataset.filter;document.querySelectorAll('button').forEach(x=>x.classList.remove('active'));btn.classList.add('active');renderTable('clean');renderTable('randomized');}));
+render();
+</script>
+</body></html>

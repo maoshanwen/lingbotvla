@@ -16,7 +16,12 @@
 #   --start_port        starting port (default: 9330)
 #   --pid_name          PID file prefix (default: test_pid)
 #   --num_tasks         number of sim tasks, taken in order from the task list (default: 50, max: 50)
+#   --tasks             comma-separated task names; overrides --num_tasks
+#   --episodes_per_task rollout count per task (default: 100; official score requires 100)
+#   --method_name       experiment method name used in the merged JSON
+#   --result_json       method-level JSON path; clean/randomized runs merge into this file
 #   --num_gpus          total GPUs (default: 1)
+#   --gpu_offset        first physical GPU index (default: 0)
 #   --num_per_gpu       inference servers per GPU (default: 1)
 #   --use_length        chunk length (default: 50)
 #   --robo_name         robot config name (default: robotwin)
@@ -50,7 +55,11 @@ start_port=9330
 pid_name="test_pid"
 num_tasks=50
 custom_tasks=""
+episodes_per_task=100
+method_name="unnamed_method"
+result_json=""
 num_gpus=1
+gpu_offset=0
 num_per_gpu=1
 use_length=50
 use_bf16=False
@@ -74,7 +83,11 @@ while [[ $# -gt 0 ]]; do
         --pid_name)          pid_name="$2";          shift 2 ;;
         --num_tasks)         num_tasks="$2";         shift 2 ;;
         --tasks)             custom_tasks="$2";      shift 2 ;;
+        --episodes_per_task) episodes_per_task="$2"; shift 2 ;;
+        --method_name)       method_name="$2";       shift 2 ;;
+        --result_json)       result_json="$2";       shift 2 ;;
         --num_gpus)          num_gpus="$2";          shift 2 ;;
+        --gpu_offset)        gpu_offset="$2";        shift 2 ;;
         --num_per_gpu)       num_per_gpu="$2";       shift 2 ;;
         --use_length)        use_length="$2";        shift 2 ;;
         --use_bf16)          use_bf16="$2";        shift 2 ;;
@@ -102,7 +115,11 @@ while [[ $# -gt 0 ]]; do
             echo "  --pid_name          PID file prefix (default: test_pid)"
             echo "  --num_tasks         number of sim tasks (default: 50, max: 50)"
             echo "  --tasks             comma-separated task names; overrides --num_tasks"
+            echo "  --episodes_per_task rollout count per task (default: 100, range: 1~100)"
+            echo "  --method_name       experiment method name for JSON archive"
+            echo "  --result_json       merge this setting into the specified JSON file"
             echo "  --num_gpus          total GPUs (default: 1)"
+            echo "  --gpu_offset        first physical GPU index (default: 0)"
             echo "  --num_per_gpu       inference servers per GPU (default: 1)"
             echo "  --use_length        chunk length (default: 50)"
             echo "  --use_bf16          use bfloat16 inference (default: False)"
@@ -153,7 +170,9 @@ cleanup() {
     done
     echo -e "\033[33m=== Cleanup done ===\033[0m"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 
 
@@ -204,6 +223,10 @@ if [ "$num_tasks" -gt 50 ]; then
     echo -e "\033[31mError: num_tasks ${num_tasks} exceeds max 50; use 1~50\033[0m"
     exit 1
 fi
+if [ "$episodes_per_task" -lt 1 ] || [ "$episodes_per_task" -gt 100 ]; then
+    echo -e "\033[31mError: episodes_per_task must be 1~100\033[0m"
+    exit 1
+fi
 
 # ===== Sim-side args =====
 policy_name=ACT
@@ -241,7 +264,14 @@ batch_time=$(date +%Y%m%d_%H%M%S)
 # Extract experiment name and step from model_path (e.g. qwen35_robotwin_forward_no_mask_30k)
 _exp_name=$(echo "$model_path" | grep -oP '[^/]+(?=/checkpoints)')
 _step_num=$(echo "$model_path" | grep -oP 'global_step_\K\d+')
-_step_k=$(( _step_num / 1000 ))k
+if [ -z "$_exp_name" ]; then
+    _exp_name="$(basename "${model_path%/}")"
+fi
+if [ -n "$_step_num" ]; then
+    _step_k=$(( _step_num / 1000 ))k
+else
+    _step_k="pretrained"
+fi
 run_dir="${output_base}/${_exp_name}_${_step_k}_${task_config}_${batch_time}"
 mkdir -p "${run_dir}/inference_logs" "${run_dir}/eval_logs"
 log_dir="${run_dir}"
@@ -266,7 +296,7 @@ echo -e "\033[32m========== Starting inference side: ${num_slots} QwenPi servers
 cd "$inference_workdir" || { echo -e "\033[31mError: inference workdir ${inference_workdir} missing\033[0m"; exit 1; }
 
 for slot in $(seq 0 $((num_slots-1))); do
-    gpu_id=$(( slot % num_gpus ))
+    gpu_id=$(( gpu_offset + (slot % num_gpus) ))
     port=$(( start_port + slot ))
 
     export CUDA_VISIBLE_DEVICES=${gpu_id}
@@ -281,7 +311,7 @@ for slot in $(seq 0 $((num_slots-1))); do
         inference_script_for_module="${inference_script_for_module#${inference_workdir%/}/}"
     fi
     inference_module=$(echo "${inference_script_for_module}" | sed 's|/|.|g; s|\.py$||')
-    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -m ${inference_module} \
+    setsid bash -c "source ${conda_sh} && conda activate ${inference_env} && export PYTHONNOUSERSITE=1 OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 && SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0 python -m ${inference_module} \
         --model_path '${model_path}' \
         --use_length '${use_length}' \
         --use_bf16 "${use_bf16}" \
@@ -309,6 +339,32 @@ for slot in $(seq 0 $((num_slots-1))); do
 done
 active_inference=$num_slots
 
+# Do not start simulators until every inference process is listening. This
+# turns import, ABI, and model-load failures into an immediate launcher error
+# instead of leaving simulator clients blocked indefinitely.
+for slot in $(seq 0 $((num_slots-1))); do
+    port=$(( start_port + slot ))
+    inf_pid=${inference_pids[$slot]}
+    ready=false
+    for _ in $(seq 1 180); do
+        if ! kill -0 "$inf_pid" 2>/dev/null; then
+            echo -e "\033[31mError: inference slot ${slot} exited before opening port ${port}\033[0m"
+            tail -80 "${run_dir}/inference_logs/qwenpi_slot${slot}_gpu$(( gpu_offset + (slot % num_gpus) ))_port${port}.log" || true
+            exit 1
+        fi
+        if (echo > "/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+            ready=true
+            break
+        fi
+        sleep 2
+    done
+    if ! $ready; then
+        echo -e "\033[31mError: inference slot ${slot} did not open port ${port} within 360 seconds\033[0m"
+        exit 1
+    fi
+done
+echo -e "\033[32mAll inference servers are ready\033[0m"
+
 # ============================================================
 # Phase 2: queue-scheduled sim tasks
 # ============================================================
@@ -319,7 +375,7 @@ cd "$eval_workdir" || { echo -e "\033[31mError: sim workdir ${eval_workdir} miss
 # ===== Ensure the lingbot eval client is present under RoboTwin/script =====
 # The eval client resolves its ../task_config relative to its own location, so it
 # must live at <RoboTwin>/script/ for _camera_config.yml to be found.
-eval_client_src="${inference_workdir}experiment/robotwin/eval_policy_client_lingbotvla.py"
+eval_client_src="${inference_workdir%/}/experiment/robotwin/eval_policy_client_lingbotvla.py"
 eval_client_dst="${eval_workdir}/script/eval_policy_client_lingbotvla.py"
 if [ ! -f "$eval_client_dst" ]; then
     if [ ! -f "$eval_client_src" ]; then
@@ -333,7 +389,7 @@ fi
 # ===== Ensure the deploy client helpers are present under RoboTwin/script/deploy =====
 # The eval client does `from script.deploy.websocket_client_policy import WebsocketClientPolicy`,
 # which pulls in a sibling msgpack_numpy. Copy any that are missing from the inference repo.
-deploy_pkg_src="${inference_workdir}deploy"
+deploy_pkg_src="${inference_workdir%/}/deploy"
 deploy_pkg_dst="${eval_workdir}/script/deploy"
 mkdir -p "$deploy_pkg_dst"
 for f in __init__.py websocket_client_policy.py msgpack_numpy.py; do
@@ -404,7 +460,7 @@ done
 launch_task() {
     local slot=$1
     local task_name=$2
-    local gpu_id=$(( slot % num_gpus ))
+    local gpu_id=$(( gpu_offset + (slot % num_gpus) ))
     local port=$(( start_port + slot ))
 
     export CUDA_VISIBLE_DEVICES=${gpu_id}
@@ -438,6 +494,7 @@ launch_task() {
         --task_config ${task_config} \
         --train_config_name ${train_config_name} \
         --seed ${seed} \
+        --test_num ${episodes_per_task} \
         --policy_name ${policy_name} \
         --port ${port} \
         --robo_name ${robo_name} \
@@ -601,7 +658,7 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     echo "  Result: ${completed} done, ${skipped} skipped"
     echo "============================================"
     echo ""
-    printf "%-30s %-10s %-12s %-10s %-10s\n" "Task" "Time(s)" "Done(100)" "Success/Total" "Rate"
+    printf "%-30s %-10s %-12s %-10s %-10s\n" "Task" "Time(s)" "Done(${episodes_per_task})" "Success/Total" "Rate"
     echo "--------------------------------------------------------------------------------"
 
     total_success=0
@@ -632,17 +689,17 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
             fi
         fi
 
-        # Check whether all 100 episodes ran
+        # Check whether all requested episodes ran
         if [ "$episodes_done" != "-" ]; then
             total_ep=$(echo "$episodes_done" | cut -d'/' -f2)
-            if [ "$total_ep" = "100" ]; then
+            if [ "$total_ep" = "$episodes_per_task" ]; then
                 complete_mark="YES"
             else
-                complete_mark="NO(${total_ep}/100)"
+                complete_mark="NO(${total_ep}/${episodes_per_task})"
                 all_complete=false
             fi
         else
-            complete_mark="NO(0/100)"
+            complete_mark="NO(0/${episodes_per_task})"
             all_complete=false
         fi
 
@@ -657,12 +714,32 @@ echo -e "\033[36mGenerating stats file: ${stats_file}\033[0m"
     fi
     printf "Summary: total %ds, success %d/%d, overall rate %s%%\n" "$total_duration" "$total_success" "$total_episodes" "$overall_rate"
     if $all_complete; then
-        echo "All tasks fully executed 100 episodes"
+        echo "All tasks fully executed ${episodes_per_task} episodes"
     else
-        echo "Warning: some tasks did not complete 100 episodes; check logs"
+        echo "Warning: some tasks did not complete ${episodes_per_task} episodes; check logs"
     fi
     echo "============================================"
 } | tee "$stats_file"
+
+if [ -n "$result_json" ]; then
+    setting_name="clean"
+    [ "$task_config" = "demo_randomized" ] && setting_name="randomized"
+    result_writer="${inference_workdir%/}/scripts/update_eval_result.py"
+    if [ ! -f "$result_writer" ]; then
+        echo -e "\033[31mError: result writer not found: ${result_writer}\033[0m"
+        exit 1
+    fi
+    result_python="$(source "$conda_sh" && conda activate "$inference_env" && command -v python)"
+    "$result_python" "$result_writer" \
+        --result-json "$result_json" \
+        --run-dir "$run_dir" \
+        --setting "$setting_name" \
+        --method-name "$method_name" \
+        --model-path "$model_path" \
+        --expected-tasks "$num_tasks" \
+        --expected-episodes "$episodes_per_task"
+    echo -e "JSON result: ${result_json}"
+fi
 
 # ============================================================
 # Phase 5: handle inference servers (stop the remaining ones)

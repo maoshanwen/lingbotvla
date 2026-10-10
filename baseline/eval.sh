@@ -8,7 +8,7 @@ ROBOTWIN="$ROOT/RoboTwin"
 CHECKPOINT="${1:-${CHECKPOINT:-}}"
 TEAM_ID="${TEAM_ID:-}"
 EVAL_EPISODES="${EVAL_EPISODES:-100}"
-EVAL_TASKS="${EVAL_TASKS:-all}"
+EVAL_TASKS="${EVAL_TASKS:-click_bell,open_microwave,turn_switch,place_a2b_left}"
 # Resolve and validate before compatibility workarounds or GPU startup.
 EVAL_TASKS=$(python - "$EVAL_TASKS" "$EVAL_EPISODES" "$ROOT/灵波2026/初赛评测结果模板_JSON版.json" <<'PY_TASKS'
 import json

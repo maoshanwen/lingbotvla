@@ -24,22 +24,30 @@ def main():
     parser.add_argument("--norm-stats", type=Path, default=BASELINE / "work/clean_norm_stats.json")
     parser.add_argument("--output", type=Path, default=BASELINE / "work/train_config.yaml")
     parser.add_argument("--train-output", type=Path, default=BASELINE / "work/train_output")
+    parser.add_argument("--enable-resume", choices=("0", "1"), default="1")
     parser.add_argument("--max-steps", type=int, default=2000)
     parser.add_argument("--save-steps", type=int, default=500)
     parser.add_argument("--micro-batch-size", type=int, default=1)
-    parser.add_argument("--global-batch-size", type=int, default=4)
+    parser.add_argument("--global-batch-size", type=int, default=32)
+    parser.add_argument("--data-parallel-size", type=int, default=4,
+                        help="Total data-parallel GPU count; used to derive gradient accumulation")
     args = parser.parse_args()
 
     for path in (BASE_WEIGHTS / "model.safetensors.index.json",
                  args.qwen3vl / "config.json", args.moge, args.norm_stats, args.manifest):
         if not path.is_file():
             parser.error(f"required file missing: {path}")
-    if min(args.max_steps, args.save_steps, args.micro_batch_size, args.global_batch_size) < 1:
+    if min(args.max_steps, args.save_steps, args.micro_batch_size, args.global_batch_size, args.data_parallel_size) < 1:
         parser.error("step and batch settings must be positive")
     if args.save_steps > args.max_steps:
         parser.error("save_steps must not exceed max_steps, or no evaluation checkpoint is exported")
     if args.global_batch_size < args.micro_batch_size:
         parser.error("global batch size must be at least micro batch size")
+
+    batch_per_micro_step = args.micro_batch_size * args.data_parallel_size
+    if args.global_batch_size % batch_per_micro_step != 0:
+        parser.error("global batch size must be divisible by micro batch size * data-parallel GPU count")
+    gradient_accumulation_steps = args.global_batch_size // batch_per_micro_step
 
     expected = list(json.loads(TEMPLATE.read_text())["results"]["clean"])
     lines = args.manifest.read_text().splitlines()
@@ -68,10 +76,15 @@ def main():
     config["data"]["robot_config_root"] = str(robot_config_root)
     config["data"]["norm_stats_file"] = str(args.norm_stats.resolve())
     config["train"]["output_dir"] = str(args.train_output.resolve())
+    config["train"]["enable_resume"] = args.enable_resume == "1"
+    if args.enable_resume == "0":
+        # Omit the key: the official YAML parser turns explicit null into the string "null".
+        config["train"].pop("load_checkpoint_path", None)
     config["train"]["max_steps"] = args.max_steps
     config["train"]["save_steps"] = args.save_steps
     config["train"]["micro_batch_size"] = args.micro_batch_size
     config["train"]["global_batch_size"] = args.global_batch_size
+    config["train"]["gradient_accumulation_steps"] = gradient_accumulation_steps
     align = config["train"]["align_params"]
     align["depth"]["moge_path"] = str(args.moge.resolve())
     align["depth"]["morgbd_path"] = str(BASE_WEIGHTS / "depth/model.pt")

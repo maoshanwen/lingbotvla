@@ -5,6 +5,10 @@ BASELINE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(dirname "$BASELINE_DIR")"
 MODEL_REPO="$ROOT/lingbot-vla-v2"
 WORK="$BASELINE_DIR/work"
+TRAIN_OUTPUT_DIR="${TRAIN_OUTPUT_DIR:-$WORK/train_output}"
+if [[ "$TRAIN_OUTPUT_DIR" != /* ]]; then
+  TRAIN_OUTPUT_DIR="$PWD/$TRAIN_OUTPUT_DIR"
+fi
 QWEN3VL_PATH="${QWEN3VL_PATH:-$BASELINE_DIR/models/Qwen3-VL-4B-Instruct}"
 MOGE_PATH="${MOGE_PATH:-$BASELINE_DIR/models/moge-2-vitb-normal/model.pt}"
 MANIFEST="${MANIFEST:-$WORK/clean_datasets.txt}"
@@ -59,15 +63,25 @@ fi
 TRAIN_CACHE_DIR="${TRAIN_CACHE_DIR:-$WORK/cache/huggingface/datasets}"
 mkdir -p "$TRAIN_CACHE_DIR"
 
+# Match the official launcher's GPU count, including CUDA_VISIBLE_DEVICES.
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+  TRAIN_GPUS_PER_NODE=$(echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | wc -l)
+else
+  TRAIN_GPUS_PER_NODE=$(nvidia-smi -L | wc -l)
+fi
+TRAIN_DATA_PARALLEL_SIZE=$((TRAIN_GPUS_PER_NODE * ${NNODES:-1}))
+
 python "$BASELINE_DIR/make_train_config.py" \
   --qwen3vl "$QWEN3VL_PATH" --moge "$MOGE_PATH" \
-  --max-steps "${MAX_STEPS:-50000}" --save-steps "${SAVE_STEPS:-5000}" \
-  --micro-batch-size "${MICRO_BATCH_SIZE:-1}" \
-  --global-batch-size "${GLOBAL_BATCH_SIZE:-4}"
+  --train-output "$TRAIN_OUTPUT_DIR" --enable-resume "${ENABLE_RESUME:-1}" \
+  --max-steps "${MAX_STEPS:-18000}" --save-steps "${SAVE_STEPS:-2000}" \
+  --micro-batch-size "${MICRO_BATCH_SIZE:-2}" \
+  --global-batch-size "${GLOBAL_BATCH_SIZE:-32}" \
+  --data-parallel-size "$TRAIN_DATA_PARALLEL_SIZE"
 
 HF_DATASETS_CACHE="$TRAIN_CACHE_DIR" bash -o pipefail train.sh "${train_entry[@]}" "$WORK/train_config.yaml"
-if ! find "$WORK/train_output/checkpoints" -type d -name hf_ckpt -print -quit | grep -q .; then
+if ! find "$TRAIN_OUTPUT_DIR/checkpoints" -type d -name hf_ckpt -print -quit | grep -q .; then
   echo "Training finished without an exported hf_ckpt; inspect $MODEL_REPO/log.txt" >&2
   exit 1
 fi
-echo "Training checkpoints: $WORK/train_output/checkpoints"
+echo "Training checkpoints: $TRAIN_OUTPUT_DIR/checkpoints"

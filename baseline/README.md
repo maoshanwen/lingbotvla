@@ -67,9 +67,11 @@ MAX_STEPS=2000 SAVE_STEPS=500 MICRO_BATCH_SIZE=1 GLOBAL_BATCH_SIZE=4 \
   bash baseline/train.sh
 ```
 
-`train.sh` 先生成独立的 clean robot config，再调用 LingBot 官方 `scripts/compute_norm_stats.py` 生成 `baseline/work/clean_norm_stats.json`，最后基于官方 RoboTwin 训练配置生成 `baseline/work/train_config.yaml` 并训练。这样训练数据加载器不会读取官方示例中混合数据的统计量。`GLOBAL_BATCH_SIZE` 应按 GPU 数和显存调整；6B 模型及深度/视频 teacher 需要多卡或大显存。训练 checkpoint 在 `baseline/work/train_output/checkpoints/global_step_*/hf_ckpt`。训练中的 `lingbotvla_cli.yaml` 和 clean norm 文件必须随 checkpoint 保留供推理读取。
+`train.sh` 先生成独立的 clean robot config，再调用 LingBot 官方 `scripts/compute_norm_stats.py` 生成 `baseline/work/clean_norm_stats.json`，最后基于官方 RoboTwin 训练配置生成 `baseline/work/train_config.yaml` 并训练。这样训练数据加载器不会读取官方示例中混合数据的统计量。`MAX_STEPS` 默认 18000，`SAVE_STEPS` 默认 2000；`GLOBAL_BATCH_SIZE` 默认 32，`MICRO_BATCH_SIZE` 默认 2；脚本根据可见 GPU 数（多机时乘以 `NNODES`）自动计算梯度累积次数。4 卡、每卡 micro batch 为 2 时累积 4 次，全局 batch = 每卡 micro batch × 数据并行 GPU 数 × 梯度累积次数；全局 batch 必须是每卡 micro batch × GPU 数的整数倍。可设置 `MICRO_BATCH_SIZE=1 GLOBAL_BATCH_SIZE=4` 恢复原来的 batch。6B 模型及深度/视频 teacher 需要多卡或大显存。训练 checkpoint 在 `baseline/work/train_output/checkpoints/global_step_*/hf_ckpt`。训练中的 `lingbotvla_cli.yaml` 和 clean norm 文件必须随 checkpoint 保留供推理读取。
 
 续训时，学习率调度器使用本次生成的配置（包括 `MAX_STEPS`、学习率和 warmup 比例），在恢复模型与优化器后，立即按 checkpoint 的 `global_step` 重算各参数组学习率。`MAX_STEPS` 表示训练总目标步数，不是追加步数。例如已有第 2000 步 checkpoint，执行 `MAX_STEPS=50000 SAVE_STEPS=5000 bash baseline/train.sh` 会尝试恢复最新可用 checkpoint 并训练至总第 50000 步。当前默认余弦调度、基础 LR `1e-4`、最低 LR `5e-5`、warmup 比例 0 时，恢复至第 2000 步的基础参数组 LR 约为 `9.98e-5`，第 50000 步降至 `5e-5`；各组原有 LR 比例保留。延长训练预算后 LR 可能回升，已完成的前 2000 步不会被重新执行，因此它不等同于从头按 50000 步曲线训练。
+
+从预训练权重重新开始微调，可执行 `ENABLE_RESUME=0 TRAIN_OUTPUT_DIR="$PWD/baseline/work/train_output_bs32_fresh" bash baseline/train.sh`。`ENABLE_RESUME=0` 关闭 checkpoint 恢复，模型仍从 `LINGBOT_BASE_WEIGHTS` 加载；新输出目录保留旧 checkpoint 和评测所需配置。默认 `ENABLE_RESUME=1`，输出目录仍为 `baseline/work/train_output`。
 
 恢复日志中的 `Resumed LR schedule from current config` 会打印恢复步数、总步数和各参数组 LR。调度恢复的 CPU 测试可运行 `.venvs/lingbot/bin/python -m unittest discover -s baseline/tests -p 'test_resume_lr.py' -v`。
 
@@ -90,7 +92,7 @@ EVAL_NUM_GPUS=1 bash baseline/eval.sh \
 
 `eval.sh` 支持两个可选环境变量：
 
-- `EVAL_TASKS=all`：默认全部 50 个任务。`recommended8` 选择 `click_bell,press_stapler,turn_switch,shake_bottle,open_microwave,place_a2b_left,pick_dual_bottles,stack_blocks_two`；也可传逗号分隔的官方任务名，例如 `EVAL_TASKS=press_stapler,turn_switch,shake_bottle`。
+- `EVAL_TASKS`：默认 `click_bell,open_microwave,turn_switch,place_a2b_left` 四个任务。设为 `all` 评测全部 50 个任务。`recommended8` 选择 `click_bell,press_stapler,turn_switch,shake_bottle,open_microwave,place_a2b_left,pick_dual_bottles,stack_blocks_two`；也可传逗号分隔的官方任务名，例如 `EVAL_TASKS=press_stapler,turn_switch,shake_bottle`。
 - `EVAL_EPISODES=100`：默认每任务、每 setting 100 回合，可设 1–100。`30` 表示原评测序列的前 30 个有效回合，不随机抽取回合。clean / randomized 都执行。
 
 推荐 8 项 × 两组 × 前 30 回合，共 480 回合：

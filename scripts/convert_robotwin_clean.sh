@@ -7,6 +7,7 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-/home/wangsf/lingbot_competition/data/lerobot_clean_
 WORKERS="${WORKERS:-10}"
 CONVERTER_PYTHON="${CONVERTER_PYTHON:-/home/wangsf/.conda/envs/lingbotvla/bin/python}"
 LOG_ROOT="${LOG_ROOT:-/home/wangsf/lingbot_competition/data_conversion_logs}"
+WRITE_MANIFESTS="${WRITE_MANIFESTS:-1}"
 
 mkdir -p "$OUTPUT_ROOT" "$LOG_ROOT" "$PROJECT_ROOT/assets/training_data"
 mapfile -t zips < <(find "$SOURCE_ROOT" -mindepth 2 -maxdepth 2 -type f -name '*clean_50.zip' | sort)
@@ -21,20 +22,28 @@ printf '%s\0' "${zips[@]}" | xargs -0 -n1 -P "$WORKERS" bash -c '
     >"$LOG_ROOT/${task_name}.log" 2>&1
 ' _
 
-train_manifest="$PROJECT_ROOT/assets/training_data/robotwin_clean.txt"
-val_manifest="$PROJECT_ROOT/assets/training_data/robotwin_clean_val.txt"
-: > "$train_manifest"
-: > "$val_manifest"
+if [[ "$WRITE_MANIFESTS" == "1" ]]; then
+  train_manifest="$PROJECT_ROOT/assets/training_data/robotwin_clean.txt"
+  val_manifest="$PROJECT_ROOT/assets/training_data/robotwin_clean_val.txt"
+  : > "$train_manifest"
+  : > "$val_manifest"
+fi
 for zip_path in "${zips[@]}"; do
   task_name=$(basename "$(dirname "$zip_path")")
   train_dir="$OUTPUT_ROOT/${task_name}-aloha-agilex_clean_50-train"
   val_dir="$OUTPUT_ROOT/${task_name}-aloha-agilex_clean_50-val"
   [[ -f "$OUTPUT_ROOT/.${task_name}.complete" && -f "$train_dir/meta/info.json" && -f "$val_dir/meta/info.json" ]] \
     || { echo "Incomplete conversion: $task_name" >&2; exit 1; }
-  printf 'robotwin %s\n' "$train_dir" >> "$train_manifest"
-  printf 'robotwin %s\n' "$val_dir" >> "$val_manifest"
+  if [[ "$WRITE_MANIFESTS" == "1" ]]; then
+    printf 'robotwin %s\n' "$train_dir" >> "$train_manifest"
+    printf 'robotwin %s\n' "$val_dir" >> "$val_manifest"
+  fi
 done
 
 echo "Conversion complete: ${#zips[@]} tasks"
-echo "Train manifest: $train_manifest"
-echo "Validation manifest: $val_manifest"
+if [[ "$WRITE_MANIFESTS" == "1" ]]; then
+  echo "Train manifest: $train_manifest"
+  echo "Validation manifest: $val_manifest"
+else
+  echo "Manifests unchanged (WRITE_MANIFESTS=0)"
+fi

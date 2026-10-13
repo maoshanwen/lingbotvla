@@ -22,10 +22,24 @@ CAMERAS = {
 
 
 def decode_rgb(value: np.ndarray) -> np.ndarray:
-    image = cv2.imdecode(np.frombuffer(value, np.uint8), cv2.IMREAD_COLOR)
+    """Decode RoboTwin image bits to an RGB ndarray.
+
+    RoboTwin clean_50 archives currently use the legacy encoding: an RGB
+    ndarray was passed directly to cv2.imencode, so cv2.imdecode returns the
+    original RGB channel order numerically even though OpenCV calls that array
+    BGR.  Newer XPolicyLab payloads are standard JPEGs and carry the XPL-RGB1
+    marker; those need the normal BGR-to-RGB conversion.
+
+    Do not blindly call cvtColor here.  Doing so swaps red and blue for every
+    legacy clean_50 frame (yellow becomes cyan).
+    """
+    encoded = bytes(value)
+    image = cv2.imdecode(np.frombuffer(encoded, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("OpenCV failed to decode a camera frame")
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    if b"XPL-RGB1" in encoded:
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    return image
 
 
 def features(height: int, width: int) -> dict:
